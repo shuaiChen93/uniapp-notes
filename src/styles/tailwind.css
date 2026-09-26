@@ -1,0 +1,23 @@
+/**
+ * Tailwind 样式入口（小程序 / H5 共用）。
+ *
+ * ⚠️ 只写三条 @tailwind 指令，不要在此文件写业务样式。
+ * 原因：这三条指令会被 PostCSS 展开成整个原子类库，体积以百 KB 计；
+ * 任何写在它们后面的自定义样式都会有「原子类优先级 vs 自定义类」的
+ * 层叠顺序困惑，且无法被 JIT 按需裁剪。
+ *
+ * 业务样式请写到各自的 SFC <style> 中，或追加到下方 @layer components 里。
+ */
+
+/* 基础层：Tailwind 的 CSS 变量与重置。
+   本项目在 tailwind.config.js 中关闭了 preflight（通配选择器会污染小程序
+   内置组件），所以这一层实际只输出少量变量定义，体积很小 */
+@tailwind base;
+
+/* 组件层：适合放「多页面复用的复合类」。
+   例如 .card-panel 这类由若干原子类组合而成的语义化类，
+   写在这里的好处是仍然接受 JIT 处理，且不会污染 body/page */
+@tailwind components;
+
+/* 工具层：原子类本体。必须放在最后，保证原子类能覆盖组件层的样式 */
+@tailwind utilities;

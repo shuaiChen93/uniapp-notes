@@ -1,0 +1,106 @@
+{
+  // ──────────────────────────────────────────────────────────────────────
+  // 应用标识
+  // appid 留空：需你在微信公众平台申请后填入（小程序 appid 不写入仓库是安全惯例）
+  // ──────────────────────────────────────────────────────────────────────
+  "name": "压枪训练助手",
+  "appid": "",
+  "description": "和平精英压枪测试与灵敏度训练助手",
+  "versionName": "1.0.0",
+  "versionCode": "100",
+  // transformPx 关闭：uni-app 的 px→rpx 自动转换会与 Tailwind 的单位体系打架
+  // （Tailwind 输出 rem，由 weapp-tailwindcss 的 rem2rpx 统一换算）。
+  // 两套换算机制同时开工会产生"同一份设计稿出现两种实际尺寸"的问题，故明确关掉前者。
+  "transformPx": false,
+
+  // ──────────────────────────────────────────────────────────────────────
+  // App 端（5+App / uni-app x 原生）
+  // 本项目主战场是小程序，App 端保留最小可用配置
+  // ──────────────────────────────────────────────────────────────────────
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3,
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "waiting": true,
+      "autoclose": true,
+      "delay": 0
+    },
+    "modules": {},
+    "distribute": {
+      "android": {
+        // 只保留压枪训练真实用得到的权限：
+        // VIBRATE 对应"开火震动反馈"，其余（相机/通讯录/日志）已移除，
+        // 上架时权限越少，审核问询越少
+        "permissions": [
+          "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.CHANGE_NETWORK_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.INTERNET\"/>"
+        ]
+      },
+      "ios": {},
+      "sdkConfigs": {}
+    }
+  },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // H5：本项目的"调试主力端"
+  // 小程序 IDE 启动慢、日志差，压枪算法与图表逻辑优先在 H5 上验证
+  // ──────────────────────────────────────────────────────────────────────
+  "h5": {
+    "title": "压枪训练助手",
+    "router": {
+      // base 用相对路径 "./"，让 dist 产物可以直接丢到任意子目录下的静态服务器
+      "base": "./",
+      // hash 模式：避免静态托管时刷新 404（无需服务端 rewrite 规则）
+      "mode": "hash"
+    },
+    "devServer": {
+      "port": 5173,
+      "https": false
+    },
+    "optimization": {
+      "treeShaking": {
+        "enable": true
+      }
+    }
+  },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // 微信小程序：本项目的交付目标端
+  // ──────────────────────────────────────────────────────────────────────
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      // 关闭域名校验：开发期连本地/测试环境接口不必先去后台配白名单
+      // ⚠️ 上线前须补齐 request 合法域名，并把此项改回 true
+      "urlCheck": false,
+      "es6": true,
+      "minified": true,
+      // 关闭微信开发者工具自带的 postcss 处理：
+      // 样式链路由 Vite + PostCSS + weapp-tailwindcss 统一负责，
+      // 再叠一层 IDE 的 postcss 会对已转义的类名做二次处理，产生难排查的样式错乱
+      "postcss": false,
+      "enhance": true
+    },
+    "usingComponents": true,
+    // 按需注入：只初始化当前页面用到的组件，显著降低冷启动耗时（必开项）
+    "lazyCodeLoading": "requiredComponents",
+    // 需要申请的非敏感权限：压枪测试抽帧时避免息屏
+    "requiredPrivateInfos": []
+  },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // 其他端：本项目不产出，保持最小声明
+  // ──────────────────────────────────────────────────────────────────────
+  "mp-alipay": { "usingComponents": true },
+  "mp-baidu": { "usingComponents": true },
+  "mp-toutiao": { "usingComponents": true },
+  "quickapp": {},
+
+  // 官方 uni 统计，本项目不启用（避免额外的隐私合规声明成本）
+  "uniStatistics": { "enable": false },
+  "vueVersion": "3"
+}

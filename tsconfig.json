@@ -1,0 +1,60 @@
+{
+  "compilerOptions": {
+    /* ── 语言与模块 ──────────────────────────────────────────────── */
+    // 目标 ESNext：产物最终由 Vite / esbuild 转译，TS 只负责类型检查，
+    // 无需它降级语法，保持与构建链路一致可避免"TS 编译一套、打包器再转一套"的偏差
+    "target": "ESNext",
+    "module": "ESNext",
+    // Bundler 模式（TS 5.0+）：按 Vite 的解析规则处理 exports/imports 字段，
+    // 这是 Vite 项目唯一正确的选择；用 node/node16 会导致部分包类型解析失败
+    "moduleResolution": "Bundler",
+    // 小程序 API（uni.*、wx.*）+ Vite 客户端类型（import.meta.env 等）+ Node 类型（vitest 配置用）
+    "types": ["@dcloudio/types", "vite/client", "node"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+
+    /* ── 路径别名 ────────────────────────────────────────────────── */
+    // 必须与 vite.config.ts 的 resolve.alias 保持一致，
+    // 否则会出现「TS 能跳转、运行时 404」的割裂
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    /* ── 交互与产物 ──────────────────────────────────────────────── */
+    // 类型检查由 vue-tsc 独立完成，不产出 JS（Vite 负责产物）
+    "noEmit": true,
+    // Vite 按文件独立转译，要求每个文件都能被单独解析。
+    // 开启后必须用 `import type` 显式导入纯类型，否则该导入会被保留到运行时并报错
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    // Vue SFC 的 <script setup> 与顶层 await 需要
+    "jsx": "preserve",
+    "skipLibCheck": true,
+    // 让 vue-tsc 能对 .vue 文件做类型推导
+    "allowJs": true,
+    "sourceMap": true,
+
+    /* ── 严格性 ──────────────────────────────────────────────────── */
+    // 全量严格模式：本项目是"能跑起来的骨架"，宁可此时被类型拦住，
+    // 也不要等上线后在小程序真机上排查 undefined 崩溃
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "src/**/*.tsx",
+    "src/**/*.vue",
+    "tests/**/*.ts",
+    "e2e/**/*.ts",
+    "*.ts",
+    "*.d.ts"
+  ],
+  "exclude": ["node_modules", "dist", "src/uni_modules/**/node_modules"]
+}

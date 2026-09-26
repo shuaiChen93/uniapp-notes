@@ -1,0 +1,27 @@
+# ──────────────────────────────────────────────────────────────────────────
+# pnpm 11 的配置入口（pnpm 10 之后，pnpm 自身的配置统一收敛到本文件）。
+#
+# allowBuilds 控制「依赖包的构建脚本（postinstall 等）是否允许执行」。
+# pnpm 默认全部拦截：npm 生态史上多起供应链投毒都发生在 postinstall，
+# 这层默认拦截是有意为之的安全设计，而不是配置错误。
+# 但下面几个包的脚本属于「正常工作所必需」，必须显式放行：
+#
+#   esbuild           → 落地/校验平台二进制。Vite 的底层转译器，
+#                       不放行则 dev/build 直接抛错。必需。
+#   vue-demi          → 按当前 Vue 版本重写入口文件。pinia 的运行时依赖，
+#                       不放行可能加载到 Vue2 的入口。必需。
+#   weapp-tailwindcss → 生成本项目小程序端类名转义所需的配套产物。必需。
+#
+# 其余保持 false（显式写 false 而不是删掉，是为了让「已评估过」这件事留在仓库里）：
+#   core-js / core-js-pure → 其 postinstall 仅用于打印赞助信息，
+#                            是官方 README 明确建议不要放行的典型。
+#   @parcel/watcher        → 可选的文件监听加速器，不执行脚本也不影响开发，
+#                            可避免在 Windows 上触发本地原生编译。
+# ──────────────────────────────────────────────────────────────────────────
+allowBuilds:
+  '@parcel/watcher': false
+  core-js: false
+  core-js-pure: false
+  esbuild: true
+  vue-demi: true
+  weapp-tailwindcss: true

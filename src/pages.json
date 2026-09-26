@@ -1,0 +1,169 @@
+{
+  // ──────────────────────────────────────────────────────────────────────
+  // 主包页面：只放「必须秒开」的 4 个 tabBar 页面。
+  // 微信小程序有 2MB 主包体积上限，tabBar 页面又必须位于主包，
+  // 因此这里只保留首屏链路：首页 → 压枪测试 → 记录 → 我的。
+  // ──────────────────────────────────────────────────────────────────────
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "压枪训练助手",
+        // 首页作为启动页，禁用原生导航栏以使用自定义头部（品牌感更强）
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/recoil/index",
+      "style": {
+        "navigationBarTitleText": "压枪测试",
+        "navigationStyle": "custom",
+        // 压枪测试是横屏手感操作，禁止下拉刷新与页面滚动回弹，避免误触干扰采样
+        "disableScroll": true
+      }
+    },
+    {
+      "path": "pages/record/index",
+      "style": {
+        "navigationBarTitleText": "训练记录",
+        // 开启下拉刷新：记录页是"练完回来看数据"的场景，下拉即刷新成本最低
+        "enablePullDownRefresh": true,
+        "backgroundColor": "#0F1115"
+      }
+    },
+    {
+      "path": "pages/mine/index",
+      "style": {
+        "navigationBarTitleText": "我的",
+        "navigationStyle": "custom"
+      }
+    }
+  ],
+
+  // ──────────────────────────────────────────────────────────────────────
+  // 分包：灵敏度方案、排行榜、设置属于「低频但体积大」的页面
+  // （排行榜要带战绩海报绘制、灵敏度要带大量表单与解析逻辑），
+  // 放进分包后，用户不点进去就不会下载这部分代码，直接缩短首屏启动耗时。
+  // 注意：分包 root 不能与主包 pages 目录重名，否则微信开发者工具会报路径冲突。
+  // ──────────────────────────────────────────────────────────────────────
+  "subPackages": [
+    {
+      "root": "pages-sub",
+      "pages": [
+        {
+          "path": "sensitivity/index",
+          "style": {
+            "navigationBarTitleText": "灵敏度方案",
+            "navigationStyle": "custom"
+          }
+        },
+        {
+          "path": "rank/index",
+          "style": {
+            "navigationBarTitleText": "排行榜",
+            "navigationStyle": "custom"
+          }
+        },
+        {
+          "path": "settings/index",
+          "style": {
+            "navigationBarTitleText": "设置",
+            "navigationStyle": "custom"
+          }
+        }
+      ]
+    }
+  ],
+
+  // ──────────────────────────────────────────────────────────────────────
+  // 分包预下载：进入首页后，趁用户还在看首屏的时间窗口把分包悄悄拉下来。
+  // network 用 "all" 而非默认的 wifi——本包分包体积小，流量成本可忽略，
+  // 换来的收益是点击「灵敏度」时无白屏等待。
+  // ──────────────────────────────────────────────────────────────────────
+  "preloadRule": {
+    "pages/index/index": {
+      "network": "all",
+      "packages": ["pages-sub"]
+    }
+  },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // 全局样式：整体暗色，贴近游戏内 HUD 的观感
+  // ──────────────────────────────────────────────────────────────────────
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "压枪训练助手",
+    "navigationBarBackgroundColor": "#0F1115",
+    "backgroundColor": "#0F1115",
+    "backgroundColorTop": "#0F1115",
+    "backgroundColorBottom": "#0F1115"
+  },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // tabBar
+  // 暂不配置 iconPath/selectedIconPath：微信小程序允许 tabBar 纯文字，
+  // 先避免把未校验尺寸的图片资源塞进仓库。图标在阶段 3 补充 81x81 PNG 后再加。
+  // ──────────────────────────────────────────────────────────────────────
+  "tabBar": {
+    "color": "#5C6470",
+    "selectedColor": "#FF6B1A",
+    "backgroundColor": "#191C22",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/recoil/index",
+        "text": "压枪测试"
+      },
+      {
+        "pagePath": "pages/record/index",
+        "text": "记录"
+      },
+      {
+        "pagePath": "pages/mine/index",
+        "text": "我的"
+      }
+    ]
+  },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // easycom：组件自动按需引入。
+  // wot-design-uni 的官方约定就是这条正则——凡是模板里写了 <wd-xxx>，
+  // 编译器自动补 import，无需在每个页面手写 import 语句，
+  // 同时也保证未使用的组件不会被打进包（真正的按需）。
+  // ──────────────────────────────────────────────────────────────────────
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^wd-(.*)": "wot-design-uni/components/wd-$1/wd-$1.vue",
+      // 本项目自研组件统一以 x- 开头（x = 训练 / trainer）
+      "^x-(.*)": "@/components/x-$1/x-$1.vue"
+    }
+  },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // 自定义编译模式：开发期在开发者工具里可一键直达指定页面并携带参数，
+  // 省去「启动→点好几层→才到目标页」的重复操作。仅开发期生效，不影响线上。
+  // ──────────────────────────────────────────────────────────────────────
+  "condition": {
+    "current": 0,
+    "list": [
+      {
+        "name": "压枪测试-直接开局",
+        "path": "pages/recoil/index",
+        "query": "gun=m416&scope=4&distance=100"
+      },
+      {
+        "name": "灵敏度方案",
+        "path": "pages-sub/sensitivity/index"
+      },
+      {
+        "name": "排行榜",
+        "path": "pages-sub/rank/index"
+      }
+    ]
+  }
+}
