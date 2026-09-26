@@ -1,6 +1,7 @@
 import { createSSRApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
+import { createPersistPlugin } from './store'
 
 // Tailwind 的样式入口在这里引入而不是 App.vue 的 <style> 里，原因有二：
 // 1. weapp-tailwindcss 官方推荐 Tailwind 入口是独立 .css 文件，
@@ -24,8 +25,14 @@ export function createApp() {
   // 模块顶层的单例会被多个 app 复用，造成跨请求状态污染。
   const pinia = createPinia()
 
-  // 持久化插件在阶段 2 接入（src/store/plugins/persist.ts），
-  // 届时在此处追加：pinia.use(persistPlugin)
+  // 持久化插件必须在这里注册，且必须在 app.use(pinia) 之前。
+  //
+  // pinia.use() 的注册时机是有讲究的：若在 pinia 已挂载到 app 之后再注册，
+  // 插件只会对「此后新建」的 store 生效，而在此之前已经被创建的 store
+  // 会永远拿不到插件——症状是某些 store 存不上，且与调用顺序强相关，极难定位。
+  // 统一写在挂载之前，可以彻底避开这个时序问题。
+  pinia.use(createPersistPlugin())
+
   app.use(pinia)
 
   return {

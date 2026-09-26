@@ -37,6 +37,16 @@
         "navigationBarTitleText": "我的",
         "navigationStyle": "custom"
       }
+    },
+    {
+      // 登录页放在主包而非分包：它是「登录态失效」时的跳转目标，
+      // 这条跳转发生在任意时刻（包括用户正在用某个分包页面时），
+      // 放进分包会额外引入一次分包下载等待，让兜底体验变差。
+      "path": "pages/login/index",
+      "style": {
+        "navigationBarTitleText": "登录",
+        "navigationStyle": "custom"
+      }
     }
   ],
 
@@ -68,6 +78,15 @@
           "path": "settings/index",
           "style": {
             "navigationBarTitleText": "设置",
+            "navigationStyle": "custom"
+          }
+        },
+        {
+          // 个人资料页放分包：它是可选页面，不进也不影响使用，
+          // 没必要占用主包的启动体积
+          "path": "profile/index",
+          "style": {
+            "navigationBarTitleText": "个人资料",
             "navigationStyle": "custom"
           }
         }
