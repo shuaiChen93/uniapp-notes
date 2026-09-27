@@ -1,6 +1,20 @@
 <script setup lang="ts">
+import { watch } from 'vue'
 import { onLaunch, onShow, onHide, onError } from '@dcloudio/uni-app'
 import { silentLogin } from '@/utils/request'
+import { useSettingsStore } from '@/store'
+import { applyTheme } from '@/utils/theme'
+
+/**
+ * 主题初始化。
+ *
+ * 在 setup 顶层（而不是 onLaunch 内部）建立 watch：
+ * setup 的执行早于所有生命周期钩子，immediate: true 会让它在
+ * 首屏渲染之前就把窗口背景色设好。放进 onLaunch 的话，
+ * 冷启动时会先闪一下暗色底再变成浅色。
+ */
+const settingsStore = useSettingsStore()
+watch(() => settingsStore.settings.theme, applyTheme, { immediate: true })
 
 /**
  * 应用生命周期。
@@ -63,13 +77,58 @@ onError((err) => {
 
 /* 小程序没有 html/body，页面根节点是 page。统一暗色底，避免页面切换时闪白 */
 page {
-  background-color: #0f1115;
-  color: #f5f7fa;
+  /* ────────────────────────────────────────────────────────────────
+   * 设计令牌（暗色，默认）。
+   *
+   * 这些变量的值被 tailwind.config.js 里的 colors 引用，
+   * 因此页面里 `bg-bg-card`、`text-content-secondary` 这类类名最终
+   * 取到的就是下面这些色值。
+   *
+   * 换肤原理：变量定义在 page 上，会被所有后代继承；
+   * 页面根节点挂上 .theme-light 后，那一层的变量被覆盖，
+   * 整棵子树内的所有类名随之取到浅色值——不需要改任何一处类名。
+   * ──────────────────────────────────────────────────────────────── */
+  --color-brand: #ff6b1a;
+  --color-brand-light: #ff8f4d;
+  --color-brand-dark: #d9540b;
+
+  --color-bg-base: #0f1115;
+  --color-bg-card: #191c22;
+  --color-bg-elevated: #232830;
+
+  --color-content-primary: #f5f7fa;
+  --color-content-secondary: #9ba3af;
+  --color-content-muted: #5c6470;
+
+  background-color: var(--color-bg-base);
+  color: var(--color-content-primary);
   /* 使用系统字体栈：小程序无法加载 web 字体，系统字体是唯一零成本选择 */
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica,
     'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   font-size: 28rpx;
   line-height: 1.5;
+}
+
+/**
+ * 浅色主题。
+ *
+ * ⚠️ 只覆盖「背景 / 文本」两组，品牌色与语义色保持不变——
+ * 战术橙在浅色底上依然醒目，换掉反而会让品牌识别度下降。
+ *
+ * 层级关系与暗色**方向相反**：暗色下越靠上层越亮（#0F1115 → #232830），
+ * 浅色下则是越靠上层越白（#F2F4F7 → #FFFFFF）——
+ * 两种主题里「卡片都比页面底色更突出」这条规则是一致的，
+ * 只是实现它需要朝相反的方向调整明度。直接照搬同一组灰阶会让
+ * 浅色主题下的卡片"陷"进背景里，看起来像没有边框。
+ */
+.theme-light {
+  --color-bg-base: #f2f4f7;
+  --color-bg-card: #ffffff;
+  --color-bg-elevated: #e7eaf0;
+
+  --color-content-primary: #1a1d23;
+  --color-content-secondary: #5a6270;
+  --color-content-muted: #8b93a1;
 }
 
 /**

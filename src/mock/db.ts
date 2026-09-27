@@ -64,3 +64,32 @@ export function updateRow<T extends BaseRow>(
   saveAll(table, rows)
   return updated
 }
+
+/**
+ * 按 id 删除一行。
+ * 返回是否删掉了东西——调用方据此区分「删除成功」和「这条记录本来就不存在」。
+ */
+export function deleteRow<T extends BaseRow>(table: StorageKey, id: string): boolean {
+  const rows = selectAll<T>(table)
+  const next = rows.filter((row) => row.id !== id)
+  // 长度没变说明没找到，此时不写盘：省一次同步 IO，
+  // 也避免把「空写」当成一次真实变更
+  if (next.length === rows.length) return false
+
+  saveAll(table, next)
+  return true
+}
+
+/**
+ * 批量删除（按条件）。
+ * 返回删除的条数。
+ */
+export function deleteWhere<T extends BaseRow>(
+  table: StorageKey,
+  predicate: (row: T) => boolean,
+): number {
+  const rows = selectAll<T>(table)
+  const next = rows.filter((row) => !predicate(row))
+  saveAll(table, next)
+  return rows.length - next.length
+}

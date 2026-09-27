@@ -73,7 +73,7 @@
 import { computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { USE_MOCK } from '@/constants/config'
-import { useUserStore } from '@/store'
+import { useRecordStore, useUserStore } from '@/store'
 import type { LoginType } from '@/types'
 import { silentLogin } from '@/utils/request'
 
@@ -94,6 +94,7 @@ import { silentLogin } from '@/utils/request'
  */
 
 const userStore = useUserStore()
+const recordStore = useRecordStore()
 
 /** 页面实例内只做一次登录态检查，避免每次 onShow 都打一次接口 */
 let sessionChecked = false
@@ -112,16 +113,38 @@ onShow(async () => {
 
   // 校验一次凭证。accessToken 过期时走无感刷新，用户全程无感知
   await userStore.restoreSession()
+
+  // 概览数据。store 里的 loaded 标记会拦住重复请求——
+  // 首页和记录页通常已经拉过了，这里多半是一次空操作
+  if (!recordStore.loaded) {
+    recordStore.refresh()
+    recordStore.fetchStats()
+  }
 })
 
 /* ── 展示数据 ── */
 
-/** 训练数据概览：阶段 3 接入真实统计后替换这里的占位值 */
-const stats = [
-  { label: '训练场次', value: '--' },
-  { label: '最佳评级', value: '--' },
-  { label: '平均偏移', value: '--' },
-]
+/**
+ * 训练数据概览。
+ *
+ * 只读 recordStore.stats（服务端算好的聚合值），本页不做任何计算——
+ * 一旦这里自己算「训练场次」，就会出现与记录页、首页口径不一致的风险，
+ * 而这种分歧在用户眼里就是数据错误。
+ */
+const stats = computed(() => {
+  const summary = recordStore.stats
+  const hasData = !!summary && summary.totalSessions > 0
+
+  return [
+    { label: '训练场次', value: hasData ? summary.totalSessions : '--' },
+    // 没练过时 bestScore 是 0，显示成「0」会让人以为是考了零分
+    { label: '最佳成绩', value: hasData ? summary.bestScore : '--' },
+    {
+      label: '平均偏移',
+      value: hasData ? `${summary.averageOffset.toFixed(1)}px` : '--',
+    },
+  ]
+})
 
 const menus = [
   { label: '灵敏度方案', desc: '按枪械与倍镜配置', path: '/pages-sub/sensitivity/index' },

@@ -22,28 +22,41 @@ module.exports = {
   theme: {
     extend: {
       // ──────────────────────────────────────────────────────────────
-      // 设计令牌：暗色战术风格。所有颜色在这里集中定义，
-      // 页面里只写类名（如 bg-bg-card），不在组件里散落硬编码色值，
-      // 后续要做主题切换时只需替换这一处（配合 CSS 变量）。
+      // 设计令牌。
+      //
+      // ⚠️ 品牌色 / 背景 / 文本这三组走的是 **CSS 变量**（值定义在 App.vue 的
+      // 全局样式里），而不是写死的 hex。这是主题切换的基础：
+      // 换肤时只需要给页面根节点换一个 class 覆盖那组变量，
+      // 所有页面、所有组件都会跟着变，不需要改动任何一处类名。
+      //
+      // 用变量的代价：Tailwind 的透明度语法（如 bg-brand/20）失效——
+      // 它需要在编译期算出 rgb 分量，而 var() 是运行期才解析的。
+      // 本项目本来就不用那个语法（原因见 components/x-rating-badge 的说明），
+      // 所以这个代价为零。
+      //
+      // 语义色（success/warning/danger/info）与评级色保持 hex 字面量：
+      // 它们在浅色与深色背景上都有足够对比度，不需要随主题变化，
+      // 而 rating 色还要被 constants/rating.ts 拼接成 8 位 hex 用作背景，
+      // 换成 var() 会让那个拼接直接产生非法色值。
       // ──────────────────────────────────────────────────────────────
       colors: {
         // 品牌主色：战术橙，用于主按钮、激活态、关键数据强调
         brand: {
-          DEFAULT: '#FF6B1A',
-          light: '#FF8F4D',
-          dark: '#D9540B',
+          DEFAULT: 'var(--color-brand)',
+          light: 'var(--color-brand-light)',
+          dark: 'var(--color-brand-dark)',
         },
         // 背景层级：base < card < elevated，越靠上层越亮，形成纵深感
         bg: {
-          base: '#0F1115',
-          card: '#191C22',
-          elevated: '#232830',
+          base: 'var(--color-bg-base)',
+          card: 'var(--color-bg-card)',
+          elevated: 'var(--color-bg-elevated)',
         },
         // 文本层级
         content: {
-          primary: '#F5F7FA',
-          secondary: '#9BA3AF',
-          muted: '#5C6470',
+          primary: 'var(--color-content-primary)',
+          secondary: 'var(--color-content-secondary)',
+          muted: 'var(--color-content-muted)',
         },
         // 语义色：命中/警告/脱靶
         success: '#22C55E',

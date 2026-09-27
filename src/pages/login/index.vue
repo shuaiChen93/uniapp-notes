@@ -1,5 +1,5 @@
 <template>
-  <view class="relative flex min-h-screen flex-col overflow-hidden bg-bg-base">
+  <view class="relative flex min-h-screen flex-col overflow-hidden bg-bg-base" :class="theme">
     <!--
       背景光晕。用内联 style 写径向渐变而不是 Tailwind 的 blur 系列类：
       小程序对 CSS filter 的支持在不同渲染引擎下并不一致，
@@ -123,9 +123,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { USE_MOCK } from '@/constants/config'
-import { useUserStore } from '@/store'
+import { useSettingsStore, useUserStore } from '@/store'
 import type { LoginType } from '@/types'
 import { resolveLoginCode } from '@/utils/login-code'
+import { themeClass } from '@/utils/theme'
 
 /**
  * 登录页（兜底页）
@@ -149,10 +150,14 @@ import { resolveLoginCode } from '@/utils/login-code'
  */
 
 const userStore = useUserStore()
+const settingsStore = useSettingsStore()
 
 const logging = ref(false)
 
 const { statusBarHeight = 0 } = uni.getWindowInfo()
+
+/** 本页未使用 x-page-shell（需要自绘背景光晕），主题 class 单独挂一次 */
+const theme = computed(() => themeClass(settingsStore.settings.theme))
 
 /** 页面栈里还有上一页才显示返回按钮（直接进入登录页时无处可返回） */
 const canGoBack = getCurrentPages().length > 1

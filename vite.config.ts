@@ -57,8 +57,13 @@ const weappTailwindcssPlugins = isMp
  * H5 端第三方库分包策略。
  *
  * 单页应用的第一版产物通常是「一个 2MB 的 index.js」，任何一行业务代码改动
- * 都会让用户重新下载整包。手工分块后，业务代码迭代不会让 echarts/UI 库的
+ * 都会让用户重新下载整包。手工分块后，业务代码迭代不会让 UI 库/vendor 的
  * 文件名变化，浏览器与 CDN 缓存得以命中。
+ *
+ * 注意这里**没有**给图表库分块：本项目的图表是纯 view + CSS 实现的
+ * （原因见 components/x-bar-chart），依赖树里根本没有图表库。
+ * 曾为 echarts 预留过一条规则，在确认不引入后一并删掉了——
+ * 留一条永远不会命中的正则，只会让后来的人以为项目里在用它。
  *
  * ⚠️ 刻意把 `@dcloudio/*`（uni-app 运行时）排除在外，让它留在业务 chunk 中：
  * uni 运行时的模块间存在大量循环依赖与副作用式初始化，单独抽块容易在
@@ -68,9 +73,6 @@ const weappTailwindcssPlugins = isMp
  */
 function resolveManualChunks(id: string): string | undefined {
   if (!id.includes('node_modules')) return undefined
-
-  // 图表库及其渲染引擎：体积最大（完整版 echarts ≈ 1MB），且只在「记录」「排行榜」用到
-  if (/[\\/]node_modules[\\/](echarts|zrender)[\\/]/.test(id)) return 'chunk-echarts'
 
   // UI 组件库：版本升级频率低，独立成块可让它的缓存长期有效
   if (/[\\/]node_modules[\\/](wot-design-uni|@wot-design)[\\/]/.test(id)) return 'chunk-ui'

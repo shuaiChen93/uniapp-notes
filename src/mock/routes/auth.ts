@@ -131,8 +131,12 @@ function toUserInfo(row: MockUserRow): UserInfo {
 /**
  * 从请求头解析出当前登录用户。
  * 返回 null 表示未登录——调用方统一回 401。
+ *
+ * 导出给其他路由模块复用（记录、灵敏度方案等都需要校验登录态）。
+ * 放在这里而不是 mock/utils.ts：它依赖本文件的 MockUserRow 与用户表结构，
+ * 挪到 utils 反而会让 utils 反向依赖 routes，层次颠倒。
  */
-function resolveCurrentUser(header?: Record<string, string>): MockUserRow | null {
+export function resolveCurrentUser(header?: Record<string, string>): MockUserRow | null {
   const payload = verifyToken(extractBearerToken(header), 'access')
   if (!payload) return null
   // findRow 找不到时返回 undefined，统一收敛成 null，调用方只需判一种空值
