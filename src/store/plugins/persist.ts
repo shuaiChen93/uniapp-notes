@@ -11,10 +11,10 @@ import { getStorage, setStorage } from '@/utils/storage'
  * ── 用法 ──────────────────────────────────────────────────────────────
  * 在 defineStore 的第三个参数里声明：
  *
- *   defineStore('user', { ... }, {
+ *   defineStore('notes', { ... }, {
  *     persist: {
- *       key: STORAGE_KEYS.USER,
- *       paths: ['userInfo'],   // 只持久化需要的字段
+ *       key: STORAGE_KEYS.NOTES,
+ *       paths: ['notes'],   // 只持久化需要的字段
  *     },
  *   })
  *
@@ -38,8 +38,13 @@ export interface PersistOptions {
   paths?: string[]
   /**
    * 写盘节流间隔（毫秒），默认 300。
+   *
    * storage 是同步 IO，高频变更的 state 直接写盘会阻塞渲染，
    * 表现为「滑动列表时卡顿」这类与业务逻辑毫无关系的性能问题。
+   *
+   * ⚠️ 传 0 表示**同步写盘**：数据会在 state 变更的当次调用里就落盘。
+   * 这是刻意区分的——记事数据用 0，因为它的写入时机是「用户点保存后
+   * 立刻退出」，哪怕只延后一个事件循环也存在丢数据的窗口。
    */
   throttle?: number
 }
@@ -120,11 +125,25 @@ export function createPersistPlugin() {
 
     store.$subscribe(
       (_mutation, state) => {
+        const write = (): void => {
+          setStorage(persist.key, pickPaths(state as Record<string, unknown>, persist.paths))
+        }
+
+        // throttle 为 0 时直接同步写。
+        // 看似只省了一个 setTimeout(…, 0)，实则不然：setTimeout 的最小延迟
+        // 在部分运行环境下会被拉长到 4ms 以上，而更关键的是它把写盘推迟到了
+        // 下一个事件循环——用户点完「保存」立刻划掉小程序时，
+        // 那次写盘可能永远没有机会执行。
+        if (throttle <= 0) {
+          write()
+          return
+        }
+
         if (timer) return
 
         timer = setTimeout(() => {
           timer = null
-          setStorage(persist.key, pickPaths(state as Record<string, unknown>, persist.paths))
+          write()
         }, throttle)
       },
       {
@@ -133,6 +152,19 @@ export function createPersistPlugin() {
         // 而 store 是全局的，必须在整个应用生命周期内持续生效。
         // 漏掉这个参数的症状是「页面 A 改的数据没存上，页面 B 改的存上了」，极难排查。
         detached: true,
+
+        /**
+         * flush: 'sync' —— 让回调在 state 变更的**当次调用栈内**立即执行。
+         *
+         * 这个参数是在修一个很隐蔽的时序问题：$subscribe 默认用 'pre' 刷新，
+         * 回调会被排进 Vue 的调度队列、等下一个微任务才跑。也就是说
+         * 「保存 → 写盘」之间始终隔着一个事件循环，throttle 设成 0 也无法避免。
+         *
+         * 对普通数据这毫无影响，但对记事是致命的：用户点完「保存」
+         * 立刻切后台或划掉小程序时，那次排队的写盘可能永远没有机会执行，
+         * 而他刚写完的那段字就没了。改成同步后，save() 返回时数据已经在磁盘上。
+         */
+        flush: 'sync',
       },
     )
   }

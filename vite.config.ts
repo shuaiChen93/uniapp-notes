@@ -60,27 +60,20 @@ const weappTailwindcssPlugins = isMp
  * 都会让用户重新下载整包。手工分块后，业务代码迭代不会让 UI 库/vendor 的
  * 文件名变化，浏览器与 CDN 缓存得以命中。
  *
- * 注意这里**没有**给图表库分块：本项目的图表是纯 view + CSS 实现的
- * （原因见 components/x-bar-chart），依赖树里根本没有图表库。
- * 曾为 echarts 预留过一条规则，在确认不引入后一并删掉了——
- * 留一条永远不会命中的正则，只会让后来的人以为项目里在用它。
- *
  * ⚠️ 刻意把 `@dcloudio/*`（uni-app 运行时）排除在外，让它留在业务 chunk 中：
  * uni 运行时的模块间存在大量循环依赖与副作用式初始化，单独抽块容易在
  * H5 首屏出现「运行时未初始化就被调用」的偶发白屏，收益远小于风险。
- * 小程序端不用这套逻辑——小程序的拆包由 pages.json 的 subPackages 完成，
- * 见 pages.json 中 `pages-sub` 分包与 preloadRule 配置。
+ *
+ * 小程序端不用这套逻辑——小程序的拆包由 pages.json 的 subPackages 完成；
+ * 本项目页面仅 5 个、且没有重型依赖，因此**没有**启用分包。
  */
 function resolveManualChunks(id: string): string | undefined {
   if (!id.includes('node_modules')) return undefined
 
-  // UI 组件库：版本升级频率低，独立成块可让它的缓存长期有效
-  if (/[\\/]node_modules[\\/](wot-design-uni|@wot-design)[\\/]/.test(id)) return 'chunk-ui'
-
   // uni-app 运行时 / Vue 核心不进 vendor 块（原因见上方注释）
   if (/[\\/]node_modules[\\/](@dcloudio|@vue|vue|vue-i18n)[\\/]/.test(id)) return undefined
 
-  // 其余第三方依赖统一进 vendor
+  // 其余第三方依赖（当前只有 pinia）统一进 vendor
   return 'chunk-vendor'
 }
 
@@ -143,21 +136,16 @@ export default defineConfig(() => {
     /**
      * H5 开发服务器。
      *
-     * proxy 只在 H5 端有意义：小程序的网络请求由微信客户端发出，
-     * 不受浏览器同源策略约束、也压根不经过 Vite dev server。
-     * 后端接口基址统一走环境变量，阶段 2 接入 request.ts 时以它为准。
+     * ⚠️ 这里**没有** proxy 配置，是刻意的：本应用没有后端，
+     * 全部数据只存在本地 storage（见 utils/storage.ts）。
+     * 留一段指向 localhost:3000 的代理规则，只会让后来的人以为
+     * 「还有一个服务端要启动」，白白去找一个不存在的项目。
+     *
+     * host: true 让同一局域网下的手机可以扫码访问，方便真机验证。
      */
     server: {
       host: true,
       port: 5173,
-      proxy: {
-        '/api': {
-          target: process.env.VITE_APP_PROXY_TARGET ?? 'http://127.0.0.1:3000',
-          changeOrigin: true,
-          // 后端本身没有 /api 前缀时即可开启重写
-          // rewrite: (path) => path.replace(/^\/api/, ''),
-        },
-      },
     },
 
     /**

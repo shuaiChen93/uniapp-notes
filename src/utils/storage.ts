@@ -1,4 +1,5 @@
 import type { StorageKey } from '@/constants/storage'
+import { STORAGE_PREFIX } from '@/constants/storage'
 
 /**
  * 本地存储封装
@@ -69,11 +70,14 @@ export function removeStorage(key: StorageKey): void {
 /**
  * 清空本项目写入的所有存储。
  *
+ * ⚠️ 这是「忘记密码」与「清除所有数据」的实现基础，会删掉记事、
+ * 设置与密码凭据本身，且**不可恢复**。调用前必须让用户二次确认。
+ *
  * 用 uni.getStorageInfoSync 列出全部键后按前缀过滤，
  * 而不是直接调 uni.clearStorageSync()——后者会连第三方 SDK、
- * 其他业务模块的数据一起清掉，属于「看着省事、后患无穷」的写法。
+ * 其他小程序的数据一起清掉，属于「看着省事、后患无穷」的写法。
  */
-export function clearAppStorage(prefix = 'rt_'): void {
+export function clearAppStorage(prefix = STORAGE_PREFIX): void {
   try {
     const { keys } = uni.getStorageInfoSync()
     keys.filter((key) => key.startsWith(prefix)).forEach((key) => uni.removeStorageSync(key))

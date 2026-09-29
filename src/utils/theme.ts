@@ -10,7 +10,7 @@ import type { ThemeMode } from '@/types'
  * 整棵子树里所有 `bg-bg-card`、`text-content-primary` 自动取到新值。
  *
  * 组件完全不需要感知主题——它们用的还是同一批类名。
- * 这是这套方案最值钱的地方：新增页面不用为暗色/浅色各写一套样式。
+ * 这是这套方案最值钱的地方：新增页面不用为浅色/暗色各写一套样式。
  *
  * ── 为什么要一个单独的模块 ────────────────────────────────────────────
  * class 名和背景色值需要被三个地方用到（App.vue 的启动应用、
@@ -20,8 +20,13 @@ import type { ThemeMode } from '@/types'
  * ══════════════════════════════════════════════════════════════════════
  */
 
-/** 浅色主题的 class 名。定义在 App.vue 的全局样式里 */
-const LIGHT_THEME_CLASS = 'theme-light'
+/**
+ * 暗色主题的 class 名。定义在 App.vue 的全局样式里。
+ *
+ * 默认（未挂 class）即浅色——浅色是本应用的主基调，
+ * 让它当默认值可以让绝大多数页面少挂一层 class。
+ */
+const DARK_THEME_CLASS = 'theme-dark'
 
 /**
  * 各主题下页面根节点的背景色。
@@ -31,20 +36,20 @@ const LIGHT_THEME_CLASS = 'theme-light'
  * 为什么不能用 CSS 变量代替：uni.setBackgroundColor 设置的是**窗口背景**，
  * 它由小程序原生层绘制，不在页面的 DOM/CSS 作用域内，读不到页面上的变量。
  * 它是页面滚到底部（或内容不足一屏）时露出来的那一层底色，
- * 不设置的话浅色主题下会从页面边缘露出一圈黑色。
+ * 不设置的话暗色主题下会从页面边缘露出一圈白边。
  */
 const THEME_BACKGROUND: Record<ThemeMode, string> = {
-  dark: '#0F1115',
-  light: '#F2F4F7',
+  light: '#F7F6F3',
+  dark: '#17181A',
 }
 
 /**
  * 取主题对应的根节点 class。
  *
- * 暗色返回空串（它是变量定义在 page 上的默认值，不需要额外 class）。
+ * 浅色返回空串（它是变量定义在 page 上的默认值，不需要额外 class）。
  */
 export function themeClass(theme: ThemeMode): string {
-  return theme === 'light' ? LIGHT_THEME_CLASS : ''
+  return theme === 'dark' ? DARK_THEME_CLASS : ''
 }
 
 /**

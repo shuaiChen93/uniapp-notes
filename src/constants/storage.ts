@@ -3,51 +3,46 @@
  * ══════════════════════════════════════════════════════════════════════
  * 为什么必须集中管理而不是各写各的字符串字面量：
  *
- * 本项目的 mock 层扮演「服务端」、store 层扮演「客户端」，
- * 两边都会读写 storage。键名一旦散落，很容易出现
- * 「服务端写 rt_users、客户端读 rt_user」这类单复数笔误——
- * 而且它不会报错，只表现为「数据莫名丢失」，排查代价极高。
+ * 本项目的数据全部落在本机（无后端、无云同步），storage 就是唯一的
+ * 「数据库」。键名一旦散落，很容易出现「store 写 nb_notes、
+ * utils 读 nb_note」这类单复数笔误——而且它不会报错，
+ * 只表现为「数据莫名丢失」，排查代价极高。
  *
- * 统一加 `rt_` 前缀（recoil trainer）：小程序的 storage 是全局共享的，
- * 第三方 SDK、其他页面都可能往里写，加前缀可避免键冲突。
+ * 统一加 `nb_` 前缀（notebook）：小程序的 storage 是全局共享的，
+ * 第三方插件、其他页面都可能往里写同名的键，加前缀可避免键冲突。
  * ══════════════════════════════════════════════════════════════════════
  */
 export const STORAGE_KEYS = {
-  /** 登录凭证：accessToken / refreshToken / expiresAt */
-  TOKEN: 'rt_token',
-
-  /** 当前登录用户信息 */
-  USER: 'rt_user',
-
-  /** 训练记录表（mock 服务端的「数据库表」） */
-  RECORDS: 'rt_records',
-
-  /** 用户表（mock 服务端用，登录时在此注册/查找用户） */
-  MOCK_USERS: 'rt_mock_users',
-
-  /** 灵敏度方案表 */
-  SENSITIVITY: 'rt_sensitivity',
-
-  /** 应用设置（震动、音效、主题等） */
-  SETTINGS: 'rt_settings',
-
   /**
-   * 设备标识。
-   * 非小程序端（H5 / App）没有微信登录能力，用一个本地生成的稳定 ID
-   * 充当登录凭证，保证「同一台设备再次登录仍是同一个账号」。
-   */
-  DEVICE_ID: 'rt_device_id',
-
-  /**
-   * 用户主动登出的标记。
+   * 记事本数据表（Note[] 的序列化结果）。
    *
-   * 存在的唯一理由：wx.login 是静默的，应用一启动就会自动登录。
-   * 没有这个标记的话，「退出登录」就是个假按钮——
-   * 用户点完退出，下次打开又被自动登录回去。
-   * 详见 src/utils/token.ts 的 isLoggedOut。
+   * 通过 Pinia 持久化插件自动读写，页面不直接碰它。
    */
-  LOGGED_OUT: 'rt_logged_out',
+  NOTES: 'nb_notes',
+
+  /** 应用设置：主题、密码锁开关、头像昵称等本地偏好 */
+  SETTINGS: 'nb_settings',
+
+  /**
+   * 密码锁的随机盐（Base64）。
+   *
+   * ⚠️ 与 LOCK_HASH 一样，**不走 Pinia 持久化**，由 utils/lock.ts 直接读写。
+   * 理由：验证密码的过程不该经过任何会被 Vue 响应式追踪、
+   * 被开发者工具序列化展示的状态层——少一个环节，就少一处泄漏面。
+   */
+  LOCK_SALT: 'nb_lock_salt',
+
+  /**
+   * 密码的 SHA-256 哈希值（十六进制）。
+   *
+   * 只存哈希，**永不存明文**：即便有人拿到了 storage 的完整转储，
+   * 也只能看到一个 64 位十六进制串，无法反推出 6 位 PIN。
+   */
+  LOCK_HASH: 'nb_lock_hash',
 } as const
 
 /** 所有合法存储键的联合类型，供 storage 工具做类型约束用 */
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]
+
+/** 本项目所有存储键的统一前缀，供「清空本地数据」按前缀筛选 */
+export const STORAGE_PREFIX = 'nb_'
