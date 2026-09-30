@@ -1,377 +1,379 @@
-# 压枪训练助手
+# 私密记事本
 
-基于 **uni-app + Vue 3 + TypeScript + Vite** 的「压枪测试 / 灵敏度训练」小程序，类《和平精英》的灵敏度调校工具。
+基于 **uni-app + Vue 3 + TypeScript + Pinia + TailwindCSS** 的本地记事小程序，带 6 位 PIN 密码锁。
 
-当前进度：**阶段 2**（请求库、状态管理、登录链路）已完成。核心业务页面（压枪测试、灵敏度方案、记录、排行榜）在阶段 3 接入。
-
-> **现在还没有后端。** 所有接口由 `src/mock/` 在本地扮演服务端，数据用 uni storage 落盘持久化。接真实后端时只需把 `src/constants/config.ts` 里的 `USE_MOCK` 改成 `false`，请求层、api 层、store、页面**全部无需改动**——mock 只替换了「网络传输」这一层。
+**纯本地、无后端、无账号体系**：打开就要密码，记事只写在自己手机的 storage 里，一行数据都不出设备。
 
 ---
 
-## 一、技术栈
+## 一、这个锁到底防住了什么（请如实理解）
+
+先说不防什么，因为把预期说清楚比宣传功能重要：
+
+| 场景 | 防得住吗 | 原因 |
+| --- | --- | --- |
+| 别人拿到你**已解锁**的手机，随手点开这个小程序翻看 | ✅ 防得住 | 这是密码锁唯一要防的场景，也是它存在的全部理由 |
+| 别人知道你的手机解锁密码，但不知道 PIN | ✅ 防得住 | 冷启动第一帧就是密码界面（见下文「启动页为什么是锁页」） |
+| 对方能读取小程序的存储文件（root / 越狱 / 备份提取） | ❌ **防不住** | 见下面两条 |
+| 捡到手机后离线暴力破解 PIN | ❌ **防不住** | 6 位纯数字只有 100 万种组合，单次 SHA-256 是微秒级，穷举全程**不到一秒** |
+
+两条必须说清楚的实话：
+
+1. **记事正文是明文存在 storage 里的**（`nb_notes`）。密码锁只挡在界面上，没有加密数据。能拿到存储文件的人根本不需要破解 PIN，直接读 `nb_notes` 就是全部内容。
+2. **盐不是用来抵抗暴力破解的**。它的作用是让相同的 PIN 在不同设备上得到不同哈希、使预计算的彩虹表失效。真正能提高离线破解成本的是 PBKDF2 / scrypt 这类慢哈希，本项目按需求约定使用 SHA-256 + salt。
+
+**把密码锁当成「应用的屏保」，而不是「加密保险箱」，这个功能的预期就是正确的。**
+
+如果将来需要真正的机密性，正确做法是用 PIN 派生密钥去加密 notes 本身（PBKDF2 + AES-GCM）——那是一次独立的功能升级，不是在这里多加几行能解决的。
+
+### 数据都在哪
+
+全部数据只落在本机 storage，键名以 `nb_` 为前缀（小程序的 storage 是全局共享的，加前缀避免与第三方插件键冲突）：
+
+| 键名 | 内容 | 写入方 |
+| --- | --- | --- |
+| `nb_notes` | 记事数据表（`Note[]`） | Pinia 持久化插件 |
+| `nb_settings` | 主题、密码锁开关等本地偏好 | Pinia 持久化插件 |
+| `nb_lock_salt` | 密码的随机盐（32 位十六进制） | `utils/lock.ts` 直接读写 |
+| `nb_lock_hash` | `SHA-256(salt + pin)`，64 位小写十六进制 | `utils/lock.ts` 直接读写 |
+
+**没有任何形式的明文密码落盘**，也没有任何代码路径能还原出它——校验方式是把用户新输入的 PIN 用同一个盐重新哈希后比对。
+
+> 凭据为什么绕过 Pinia 直接读写 storage：验证密码的过程不该经过一个会被 Vue 响应式追踪、会在开发者工具里被序列化展示的状态层。少一个环节就少一处泄漏面。
+
+---
+
+## 二、技术栈
 
 | 分类 | 选型 | 说明 |
 | --- | --- | --- |
-| 框架 | uni-app `3.0.0-5020420260813003` | 一套代码编译到微信小程序 / H5 / App |
-| 视图 | Vue `3.4` + `<script setup lang="ts">` | 全部使用组合式 API |
-| 语言 | TypeScript `5.6` | 全量 `strict` 模式 |
-| 构建 | Vite `5.2.8` | **版本写死，不带 `^`**，原因见下文「已知坑」 |
+| 框架 | uni-app `3.0.0-5020420260813003` | 一套代码编译到微信小程序 / H5 |
+| 视图 | Vue `3.4` + `<script setup lang="ts">` | 全部组合式 API |
+| 语言 | TypeScript `5.6` | 全量 `strict` |
+| 构建 | Vite `5.2.8` | **版本写死，不带 `^`**，原因见「已知坑」 |
 | 状态 | Pinia `2.3` | 配自研持久化插件（基于 `uni.setStorageSync`） |
 | 样式 | TailwindCSS `3.4` + weapp-tailwindcss `4.12` | 小程序端自动做类名转义与 `rem → rpx` 换算 |
-| UI 库 | wot-design-uni `1.14` | 通过 `pages.json` 的 `easycom` 按需引入 |
-| 图表 | echarts `5.6` | 仅 H5 端使用，已单独分块 |
-| 测试 | Vitest `2.1.9` + happy-dom | 另配 miniprogram-automator 做小程序 E2E |
-| 包管理 | pnpm `11` | workspace 中配置了 `allowBuilds` |
+| 哈希 | crypto-js `4.2` | 只引入 `crypto-js/sha256` 子模块 |
+| 测试 | Vitest `2.1.9` + happy-dom | 45 个用例，覆盖工具函数与 store |
+| 包管理 | pnpm `11` | 配 `allowBuilds` 白名单 |
+
+**刻意没有引入**：axios（小程序端没有 `XMLHttpRequest`，且本项目根本不发请求）、echarts、任何 UI 组件库。全部组件自研，统一 `x-` 前缀。
+
+> ⚠️ **crypto-js 已停止维护**（4.2.0 是终版）。仍然用它是因为小程序端没有 `crypto.subtle`，而本项目只需要一个固定的 SHA-256 摘要——算法已经标准化，不存在「库不更新导致摘要变了」的风险。只 `import 'crypto-js/sha256'` 子模块，整包 200KB+ 而子模块不到 30KB。
 
 ---
 
-## 二、环境要求
+## 三、环境要求
 
-- **Node.js ≥ 18.0.0**（`package.json` 的 `engines` 字段已声明）
+- **Node.js ≥ 18**（`package.json` 的 `engines` 已声明）
 - **pnpm ≥ 9**（未安装：`npm i -g pnpm`）
-- **微信开发者工具**（仅调试小程序端时需要，需在设置里开启「服务端口」以便 CLI/自动化调用）
+- **微信开发者工具**（调试/上传小程序时需要，需在设置里开启「服务端口」）
 
 ---
 
-## 三、常用命令
-
-### 安装依赖
+## 四、常用命令
 
 ```bash
-pnpm install
+pnpm install          # 安装依赖
+
+pnpm dev:h5           # H5 端开发 —— 浏览器打开 http://localhost:5173
+pnpm dev:mp-weixin    # 小程序端开发 —— 只负责编译，产物在 dist/dev/mp-weixin
+
+pnpm build:h5         # H5 打包 —— 产物在 dist/build/h5
+pnpm build:mp-weixin  # 小程序打包 —— 产物在 dist/build/mp-weixin，用它上传体验版
+
+pnpm type-check       # 类型检查（含 .vue，由 vue-tsc 完成）
+pnpm test             # 单元测试（跑一次即退出）
+pnpm test:watch       # 单元测试（监听模式）
+pnpm test:coverage    # 单元测试 + 覆盖率
 ```
 
-> ⚠️ 本项目在 `pnpm-workspace.yaml` 里用 `allowBuilds` 显式声明了允许执行构建脚本的依赖。
-> 如果 pnpm 报 `ERR_PNPM_IGNORED_BUILDS`，说明有依赖的构建脚本被拦截，
-> **不要用 `--ignore-scripts` 绕过**，而是把该依赖加进 `allowBuilds` 并显式写 `true`。
-
-### 启动开发
-
-```bash
-# H5 端 —— 浏览器直接访问 http://localhost:5173
-pnpm dev:h5
-
-# 微信小程序端 —— 产物在 dist/dev/mp-weixin
-pnpm dev:mp-weixin
-
-# App 端
-pnpm dev:app
-```
-
-小程序端的启动方式和 H5 不同：命令只负责**编译**，编译产物需要用**微信开发者工具**导入 `dist/dev/mp-weixin` 目录才能预览。开发模式下改动会自动重新编译，开发者工具里会自动刷新。
-
-> H5 端启动了 `/api` 代理（见 [vite.config.ts](vite.config.ts)），默认转发到 `http://127.0.0.1:3000`。接真实后端时用环境变量覆盖：`VITE_APP_PROXY_TARGET=http://your-api.com pnpm dev:h5`。
-> 小程序端的请求由微信客户端发出，不走 Vite dev server，因此代理配置对它无效。
-
-### 打包
-
-```bash
-# H5 —— 产物在 dist/build/h5
-pnpm build:h5
-
-# 微信小程序 —— 产物在 dist/build/mp-weixin，用开发者工具导入后上传
-pnpm build:mp-weixin
-
-# App
-pnpm build:app
-```
-
-### 质量检查
-
-```bash
-# TypeScript 类型检查（含 .vue 文件，由 vue-tsc 完成）
-pnpm type-check
-
-# 单元测试（跑一次即退出）
-pnpm test
-
-# 单元测试（监听模式，改代码自动重跑）
-pnpm test:watch
-
-# 单元测试 + 覆盖率报告
-pnpm test:coverage
-
-# 微信小程序 E2E（基于 miniprogram-automator）
-# ⚠️ 骨架尚未编写，属于阶段 4 的内容，现在执行会失败
-pnpm e2e:mp-weixin
-```
-
-**建议的提交前检查**：
+**提交前建议**：
 
 ```bash
 pnpm type-check && pnpm test
 ```
 
+> **H5 端是调试主力**：小程序 IDE 启动慢、日志差。样式与交互优先在 H5 上验证，只有涉及小程序专有能力（胶囊避让、安全区、真机键盘、storage）的问题才需要开开发者工具。
+
 ---
 
-## 四、目录结构
+## 五、真机调试（阶段 5）
+
+### 5.1 先填 appid
+
+`src/manifest.json` 里 **`mp-weixin.appid`** 是唯一生效的那一处：
+
+```jsonc
+"mp-weixin": {
+  "appid": "wx你的小程序appid",
+  ...
+}
+```
+
+> ⚠️ 实测过：改**顶层**的 `appid` 对小程序端产物没有任何影响，产物里照样写 `touristappid`。只认 `mp-weixin.appid`（两处都留着是为了让读过 uni 文档的人不困惑，但真正生效的是这一个）。
+>
+> **留空时**：开发者工具会以「游客身份」打开项目——能编译、能在模拟器里点，但**不能真机调试、不能上传**。要发体验版就必须填。
+
+### 5.2 导入项目
+
+```bash
+pnpm dev:mp-weixin      # 开发模式（改动自动重新编译）
+```
+
+微信开发者工具 → **导入项目** → 目录选择 `dist/dev/mp-weixin` → 填入同一个 appid。
+
+> 选的是 **dist 里的产物目录**，不是仓库根目录。根目录没有 `app.json`，导入它会直接报错。
+>
+> `src/manifest.json` 里的 `setting.postcss` 已设为 `false`：样式链路由 Vite + PostCSS + weapp-tailwindcss 统一负责，再叠一层 IDE 的 postcss 会对已转义的类名做二次处理。
+
+### 5.3 真机上必须验的几件事
+
+这些在模拟器上**不准**，只有真机能验：
+
+| 验证点 | 怎么看 |
+| --- | --- |
+| 自定义导航栏避让微信胶囊 | 首页右上角的「设置」按钮不能在两种机型上都不被胶囊盖住 |
+| 底部安全区 | 首页右下角「＋」悬浮按钮、锁页数字键盘不被 Home Indicator 压住 |
+| 真机键盘 | 编辑页正文 textarea 输入时，光标不被输入法顶出可视区 |
+| 冷启动第一帧 | **杀掉小程序**（不是切后台）重新打开，第一眼必须是密码界面，不能闪出任何记事标题 |
+| 随机数的降级路径 | 低版本基础库上 `wx.getRandomValues` 不存在，会走 `Math.random` 兜底（不影响功能，盐只要求唯一） |
+| 锁页禁止滚动 | 在锁页下拉不应出现回弹动画（`disableScroll: true`） |
+
+---
+
+## 六、上传体验版
+
+```bash
+pnpm build:mp-weixin
+```
+
+1. 微信开发者工具 → 导入 `dist/build/mp-weixin`（**打包产物**，与开发产物是两个目录）；
+2. 点右上角 **上传**，填版本号与项目备注；
+3. 微信公众平台 → **管理 → 版本管理 → 开发版本** → 找到刚上传的版本 → **选为体验版**；
+4. **成员管理 → 体验成员** 添加微信号，对方扫码即可使用。
+
+> 体验版与开发版都不需要先过审。
+
+### 6.1 提审前的小程序后台配置
+
+| 项目 | 建议 |
+| --- | --- |
+| 服务类目 | **工具 → 效率** 或 **工具 → 笔记**（个人主体可选） |
+| 用户隐私保护指引 | 本应用一个隐私接口都不调（不取 OpenID、不取头像昵称、不取定位），因此**没有「用户信息」项需要勾选**。填写时按实际情况声明「不收集任何个人信息」即可 |
+| ICP 备案 | ⚠️ **必须先备案才能上架**。入口在公众平台「设置 → 基本设置 → 小程序备案」，需要主体证件、应急联系人等，审核要几个工作日。**体验版不受影响，但正式发布前必须完成**——具体以微信公众平台当前要求为准 |
+| 隐私声明文案 | 见 `pages/settings/settings.vue` 的「隐私说明」一节，那份文案就是填表时的依据 |
+
+> 因为不做头像昵称，本项目的审核成本被压到了最低：**没有 `requiredPrivateInfos`、没有用户信息接口、没有网络请求**。这是刻意的取舍——一个记事本没有任何理由要知道你是谁。
+
+---
+
+## 七、手工测试清单
+
+体验版发出前，按这张表在真机上过一遍：
+
+**密码锁**
+
+- [ ] 全新安装：打开即要求设置密码，**没有返回按钮**（进不去应用）
+- [ ] 两次输入不一致 → 回到第一遍重设，提示「两次输入不一致」
+- [ ] 设置成功 → 提示「密码已设置」→ 进入首页
+- [ ] 杀进程重开：第一帧是密码界面，无记事标题闪现
+- [ ] 密码输错 → 圆点抖动、提示「密码错误」、输入被清空
+- [ ] 解锁成功 → 进入首页
+- [ ] 切后台 **＜30 秒** 回来：不要求重新输入
+- [ ] 切后台 **＞30 秒** 回来：重新要求输入（30 秒这个值是 `constants/lock.ts` 的 `RELOCK_DELAY`）
+
+**忘记密码 / 修改密码 / 关闭密码锁**
+
+- [ ] 锁屏页「忘记密码？」→ 弹窗明确写「无法找回」「会清空全部记事、设置与密码」
+- [ ] 确认清空 → 数据全没，并**就地**要求设置新密码（不是跳回首页留一段空窗）
+- [ ] 清空后去开发者工具 Storage 面板看：`nb_` 开头的键应该被重建，没有残留旧的记事
+- [ ] 设置页 →「修改密码」→ 先验当前密码 → 输错不放过 → 验证通过后设新的
+- [ ] 改完后：新密码能解锁、旧密码不能
+- [ ] 「修改密码」只在密码锁开着时出现
+- [ ] 设置页关掉密码锁 → 二次确认 → 关掉后重启不再要密码，**记事一条不少**
+
+**记事增删改查**
+
+- [ ] 首页按日期倒序分组，组头显示「今天 / 昨天 / 2026年9月20日」这类标签
+- [ ] 右下角「＋」新建 → 填标题正文 → 保存 → 回到首页能看到
+- [ ] 不填日期时默认为今天；日期选择器可以改成过去的日期
+- [ ] 标题和正文都空 → 拒绝保存并提示
+- [ ] 编辑页有未保存内容时点返回 → 弹「放弃这条记事？」确认
+- [ ] 点列表项进详情 → 标题 / 日期 / 正文完整
+- [ ] 详情页删除 → 二次确认 → 删除后回到首页且列表已更新
+- [ ] 长按/选中正文可以复制（`user-select`）
+
+**主题与其它**
+
+- [ ] 设置页切深色 → 立即生效；**重启后仍是深色**
+- [ ] 深色下逐页检查：导航栏、卡片、输入框占位文字、悬浮按钮（占位文字颜色是全局样式，最容易漏）
+- [ ] 空状态：一条记事都没有时首页显示引导文案而不是空白
+- [ ] 首页显示「已存记事 N 条」，与实际相符
+
+---
+
+## 八、目录结构
 
 ```txt
 uniapp-demo/
 ├── src/
-│   ├── api/                        # 接口层：只描述「有哪些接口」，不关心怎么发
-│   │   ├── index.ts                #   统一出口
-│   │   └── modules/auth.ts         #   登录 / 刷新 / 用户信息
-│   ├── components/                 # 自研组件，统一 x- 前缀，easycom 自动引入
-│   │   ├── x-page-shell/           #   页面外壳（自定义导航栏 + 安全区）
-│   │   └── x-user-avatar/          #   头像（无图时退化为「昵称首字 + 渐变底」文字头像）
-│   ├── constants/
-│   │   ├── config.ts               # ⭐ USE_MOCK 开关、接口基址、超时、token 安全余量
-│   │   ├── http.ts                 #   HTTP 状态码与业务码
-│   │   └── storage.ts              #   所有 storage 键名的唯一来源
-│   ├── mock/                       # ⭐ 本地 mock 服务端（详见下文）
-│   │   ├── db.ts                   #   基于 storage 的「数据表」增删改查
-│   │   ├── utils.ts                #   token 签发/校验、统一响应信封
-│   │   ├── index.ts                #   路由表：METHOD + PATH → handler
-│   │   └── routes/auth.ts          #   登录 / 刷新 / 用户信息 / 更新资料
-│   ├── pages/                      # 主包页面（必须秒开的 tabBar 页）
-│   │   ├── index/index.vue         #   首页
-│   │   ├── recoil/index.vue        #   压枪测试
-│   │   ├── record/index.vue        #   训练记录
-│   │   ├── mine/index.vue          #   我的
-│   │   └── login/index.vue         #   登录页（兜底，正常情况下用户看不到）
-│   ├── pages-sub/                  # 分包页面（低频、体积大）
-│   │   ├── sensitivity/index.vue   #   灵敏度方案
-│   │   ├── rank/index.vue          #   排行榜
-│   │   ├── settings/index.vue      #   设置
-│   │   └── profile/index.vue       #   个人资料（改头像昵称）
+│   ├── components/                 # 自研组件，x- 前缀，由 pages.json 的 easycom 自动引入
+│   │   ├── x-page-shell/           #   页面外壳：状态栏安全区 + 自绘导航栏 + 主题 class
+│   │   └── x-empty-state/          #   空状态占位
+│   ├── constants/                  # 常量（值），类型在 types/
+│   │   ├── app.ts                  #   应用名与版本号
+│   │   ├── lock.ts                 #   PIN 位数、重新上锁时长、抖动时长、锁页 URL 参数
+│   │   ├── routes.ts               #   路由表与带参跳转工具
+│   │   ├── storage.ts              # ⭐ storage 键名的唯一来源
+│   │   └── ui.ts                   #   原生弹窗用得到的色值（读不到 CSS 变量）
+│   ├── pages/                      # 5 个页面，全部 navigationStyle: custom
+│   │   ├── lock/lock.vue           # ⭐ 启动页：设置 / 确认 / 校验 / 修改密码
+│   │   ├── index/index.vue         #   时间线列表 + 悬浮新建按钮
+│   │   ├── edit/edit.vue           #   新建与编辑共用，含返回拦截
+│   │   ├── detail/detail.vue       #   详情 + 编辑 + 删除
+│   │   └── settings/settings.vue   #   密码锁开关 / 修改密码 / 主题 / 关于 / 隐私说明
 │   ├── store/
-│   │   ├── index.ts                #   pinia 实例 + 统一出口
-│   │   ├── modules/user.ts         #   用户 store：登录、登出、拉取/更新资料
+│   │   ├── index.ts                #   统一出口
+│   │   ├── modules/notes.ts        #   记事数据（持久化：nb_notes）
+│   │   ├── modules/settings.ts     #   本地偏好（持久化：nb_settings）
+│   │   ├── modules/lock.ts         #   解锁状态（⚠️ 刻意不持久化）
 │   │   └── plugins/persist.ts      #   持久化插件
-│   ├── styles/tailwind.css         # Tailwind 入口
-│   ├── types/                      # 类型定义（api / user / 统一出口）
+│   ├── types/                      # 类型定义：note / settings / lock
 │   ├── utils/
-│   │   ├── request.ts              # ⭐ 企业级请求库（传输 / 鉴权 / 业务三层）
-│   │   ├── login-code.ts           #   登录凭证 code 的获取
-│   │   ├── token.ts                # ⭐ 凭证的唯一权威来源
-│   │   ├── storage.ts              #   storage 读写（含脏数据自愈）
-│   │   └── id.ts                   #   设备 ID / uuid
-│   ├── App.vue                     # 应用入口（含启动时静默登录）
+│   │   ├── sha256.ts               #   crypto-js 封装，只导出 sha256Hex
+│   │   ├── lock.ts                 # ⭐ 凭据读写：随机盐、哈希、校验、清除
+│   │   ├── storage.ts              #   storage 读写（统一序列化 + 脏数据自愈）
+│   │   ├── format.ts               #   日期与文本格式化（今天/昨天、摘要截断）
+│   │   ├── theme.ts                #   主题 class 与窗口背景色
+│   │   ├── navigate.ts             #   带空页面栈兜底的返回
+│   │   ├── system.ts               #   状态栏高度、胶囊避让宽度
+│   │   └── id.ts                   #   uuid
+│   ├── App.vue                     # 应用入口 + 全局拦截逻辑
 │   ├── main.ts                     # 挂载 Vue 与 pinia
-│   ├── manifest.json               # 各端打包配置（appid 在这里配）
-│   └── pages.json                  # 路由、分包、tabBar、easycom
+│   ├── manifest.json               # 各端配置（mp-weixin.appid 填这里）
+│   └── pages.json                  # 页面注册表（第一项是启动页 = 锁页）
 ├── tests/
-│   ├── setup.ts                    # uni.* 的测试桩（storage + 事件总线）
-│   └── unit/auth.spec.ts           # 登录 / 无感刷新 / 静默登录链路
-├── tailwind.config.js
-├── vite.config.ts                  # 构建配置（含 Tailwind 的 PostCSS 挂载）
-├── vitest.config.ts                # ⚠️ 独立于 vite.config.ts，详见「已知坑」
+│   ├── setup.ts                    # uni.* 打桩（内存 storage）
+│   └── unit/                       # format / sha256 / notes / lock 共 45 个用例
+├── tailwind.config.js              # 颜色令牌引用 CSS 变量
+├── vite.config.ts
+├── vitest.config.ts                # ⚠️ 独立于 vite.config.ts，原因见「已知坑」
 └── tsconfig.json
 ```
 
 ---
 
-## 五、架构说明
+## 九、几个关键设计（改代码前请先读）
 
-### 5.1 请求库的分层（[src/utils/request.ts](src/utils/request.ts)）
+### 9.1 启动页为什么是锁页，而不是首页
 
-基于 `uni.request` 封装，**不用 axios**——小程序端没有 `XMLHttpRequest`，axios 无法工作。分三层：
+`pages.json` 的**第一项**决定冷启动渲染哪个页面。如果首页是启动页，即使 `App.onShow` 立刻把它 `reLaunch` 掉，首页也已经渲染过一帧——而那一帧上就是用户的记事标题。对一本私密记事本来说，这恰好是最不该被瞥见的内容，且这种闪现在调试时几乎注意不到。
 
-| 层 | 职责 | 关键点 |
-| --- | --- | --- |
-| 传输层 `transport()` | 唯一与「网络」相关的部分 | `USE_MOCK` 开关只影响这里，上层完全不知道自己连的是 mock 还是真服务 |
-| 鉴权层 `ensureFreshToken()` | 401 无感刷新 | 并发请求**共享同一个 Promise**，只真正刷新一次 |
-| 业务层 `request()` | token 注入、loading、错误提示、泛型解包 | 直接返回业务数据，已剥掉 `{ code, message, data }` 信封 |
+让锁页做启动页，第一帧就是密码界面，记事内容根本不进入渲染流程。代价是「关掉了密码锁」的用户每次冷启动多一次锁页 → 首页的跳转，锁页在 `onLoad` 里就让路，且两者背景色一致，实际不可见。
 
-**一个刻意的取舍：不做「提前预判过期」的主动刷新。** 主动刷新需要在「token 已过期但刷新失败」时分叉出「照常发送」的分支，逻辑分叉多且容易漏。本项目采用**被动刷新**——先发请求，收到 401 再刷新并重试。代价是过期后第一个请求多一次往返，换来的是控制流只有一条直线。
+### 9.2 密码锁默认开启
 
-其余能力：
+`lockEnabled` 默认 `true`，这是产品前提而不是可选增强：用户第一次打开它，往往就是想记点私密的东西。「先给价值，再给安全感」在这里不成立——先记下的那条内容已经躺在本地了，事后再上锁并不能消除它曾经敞开过的事实。
 
-- **取消请求**：`cancelRequest(key)` + 请求选项里的 `cancelKey`。典型场景是搜索联想，避免「旧关键词的结果后到、覆盖了新结果」。
-- **loading 引用计数**：`uni.showLoading` 是全局单例，并发 3 个请求时第一个结束就 `hideLoading` 会把还在飞的请求的 loading 一起关掉。用计数保证「第一个请求开、最后一个请求关」。
-- **错误提示节流**：并发请求同时失败时（比如断网）连弹好几个 toast 会让用户看到闪烁。同一文案 800ms 内只弹一次。
-- **`silent` 选项**：开启后该请求不触发任何全局副作用——不弹 loading、不弹错误提示、即使服务端返回「登录态失效」也不清凭证、不跳登录页。登录和刷新这两个接口必须开，否则会出现「登录失败 → 跳登录页」的自我跳转。
+`lockConfigured` 只服务于**数据迁移**：老版本里 `lockEnabled` 默认 `false`，而那批数据产生时还没有设置密码的入口，因此它表达的是「从未选择过」而不是「主动关掉了」。两者在存储里完全同形，只能靠这个字段区分——没有它，老设备升级后密码功能会一直不启动，而用户看到的现象只是「这功能好像没做」。
 
-### 5.2 凭证的唯一权威来源（[src/utils/token.ts](src/utils/token.ts)）
-
-**token 存在 storage 里，storage 是唯一权威来源；store 里那份只是给界面用的内存副本。**
-
-这条约定是为了打破一个会致命的循环依赖：
-
-```txt
-store → api → request → store        ← 小程序端循环依赖会让某个模块拿到 undefined
-```
-
-所以 `request.ts` 里**不允许 import store**。当凭证发生变化时，它用 `uni.$emit('auth:token-refreshed', result)` 把消息广播出去，由 store 自己监听并更新内存副本。
-
-### 5.3 持久化（[src/store/plugins/persist.ts](src/store/plugins/persist.ts)）
-
-基于 `uni.setStorageSync`，**不依赖浏览器 localStorage**（小程序端根本没有）。在 `defineStore` 的第三个参数里声明：
+### 9.3 `needsSetup()` 必须是函数，不能是 computed
 
 ```ts
-defineStore('user', { ... }, {
-  persist: {
-    key: STORAGE_KEYS.USER,
-    paths: ['userInfo'],   // 只持久化需要的字段
-  },
-})
+function needsSetup(): boolean {
+  return enabled.value && !hasPin()
+}
 ```
 
-两个细节值得注意：
+`hasPin()` 读的是 storage，不参与 Vue 的响应式追踪；而 `enabled` 只在开关翻转时才失效缓存。做成 computed 的话：用户刚设完密码 → `enabled` 从 `true` 到 `true` 没有变化 → 缓存不失效 → 仍然返回 `true` → 立刻又被拉回设置页，形成死循环，且不会有任何报错。
 
-- **`paths` 务必显式声明**。state 里往往混着 `loading`、`error` 这类只属于当前会话的字段，全量持久化会让用户下次打开时看到一个永远转不完的 loading——因为上次退出时它恰好是 `true`。
-- **写盘有 300ms 节流**。storage 是同步 IO，高频变更直接写盘会阻塞渲染，表现为「滑动列表时卡顿」这类与业务逻辑毫无关系的性能问题。
+`tests/unit/lock.spec.ts` 里有一条专门复现它的用例（绕过 store 直接写凭据，模拟「enabled 全程没变」的路径）。
 
-### 5.4 Mock 服务端（[src/mock/](src/mock/)）
+### 9.4 全局拦截放在 App 的 onShow，不放在页面里
 
-mock 层扮演的是**真实服务端**，而不只是「返回假数据」：
+页面级拦截要靠每个页面自觉调用，新增页面时漏一次就是一个缺口，而且「漏了拦截」不会报错，只表现为「某个页面不用密码就能进」。`App.onShow` 是唯一的全局入口，冷启动、切后台回来都会经过它。
 
-- **token 是真的会过期的**。accessToken 有效期 2 分钟，过期后接口**真的返回 HTTP 401**。因此前端那套无感刷新逻辑能被真实地跑通，而不是等接上后端才发现队列写错了。
-- **刻意加了 180–420ms 的模拟延迟**。真实的网络请求不是 0ms 返回的。如果 mock 瞬时返回，开发期就看不到 loading 态，等接上真后端才发现「loading 根本没写」。
-- **用户表落在 storage 里**，重复登录同一个账号拿到的是同一个用户，不是每次新建。
+拦截用 **`reLaunch`** 而不是 `navigateTo`：后者会把锁页压在原来的页面之上，用户一个返回手势（或安卓返回键）就回到了被保护的页面，密码锁形同虚设。
 
-接口清单：
+### 9.5 锁页四种模式共用一个页面
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| POST | `/auth/login` | 登录。code 相当于真实后端的 openid |
-| POST | `/auth/refresh` | 用 refreshToken 换新 accessToken |
-| GET | `/auth/profile` | 拉取当前用户信息（需要有效 accessToken） |
-| PUT | `/auth/profile` | 更新昵称 / 头像 |
+`setup`（设置）/ `confirm`（确认）/ `verify`（解锁）/ `change`（改密码的第一步：验当前密码）。数字键盘、圆点指示器、输入处理这三块占了锁页 90% 的代码，而四种模式的差别只有「文案 + 提交后做什么」。拆成四个页面会让这三块代码复制四份，于是「键盘的某个交互改了但只改了其中一个页面」这类不一致迟早会出现。
 
-新增接口：在 `src/mock/routes/` 下写 handler，然后在 `src/mock/index.ts` 的路由表里登记一行。
+`change` 与 `verify` 共用同一段校验代码，只在通过之后分叉：`verify` → 回首页，`change` → 转入 `setup` 重设。
+
+### 9.6 主题靠 CSS 变量 + 根节点 class
+
+设计令牌声明在 `page` 上（`App.vue`），由 `tailwind.config.js` 的颜色引用。页面根节点挂上 `.theme-dark` 后，那一层的变量被覆盖，整棵子树内的所有类名随之取到暗色值——不需要改任何一处类名。
+
+原生导航栏被全部关掉（`navigationStyle: custom`）也是这个原因：它由小程序原生层绘制，读不到页面里的 CSS 变量，切到暗色时会留下一条刺眼的浅色栏。
+
+> ⚠️ 暗色下的灰阶方向与浅色**相反**：浅色下越靠上层越白，暗色下越靠上层越亮。直接照搬同一组灰阶会让卡片"陷"进背景里。
 
 ---
 
-## 六、登录链路（重点）
+## 十、已知坑
 
-### 6.1 用户不需要进入登录页
+### 10.1 产物里的类名和源码不一样
 
-**登录页是兜底，不是必经之路。**
-
-微信的 `wx.login` 是**完全静默**的：不弹授权框、不需要用户点击、不消耗任何用户操作。因此小程序完全可以在启动时就把登录做完——用户在 `App.vue` 的 `onLaunch` 里就已经登录完成，从打开到进入首页，全程不知道背后发生过一次登录。
-
-```txt
-应用启动
-  └─ App.vue onLaunch → silentLogin()
-       ├─ 凭证还有效 ────────────────────→ 直接可用
-       ├─ 有 refreshToken ───────────────→ 交给 401 刷新链路，按需刷新
-       └─ 什么都没有 → wx.login() → POST /auth/login → 落盘凭证
-```
-
-**「登录」和「授权」是两件事，这是理解本设计的关键。** 以前那种「先弹登录页、等用户点一下按钮」的流程，是照搬了「需要用户授权」时代的习惯。如今 `wx.login` 没有任何授权成本，把登录页当作必经之路，等于凭空给用户加了一道没有任何作用的门槛。
-
-登录页仍然保留，但只在两种情况下出现：
-
-1. 静默登录失败了（appid 未配置、断网、微信侧异常）；
-2. 用户**主动点过**退出登录。
-
-### 6.2 三层兜底，逐级降级
-
-| 场景 | 处理 | 用户感知 |
-| --- | --- | --- |
-| 冷启动 | `App.vue` 的 `onLaunch` 调 `silentLogin()` | 无感 |
-| accessToken 过期（2 分钟后） | 401 → 静默刷新 → 自动重试原请求 | **完全无感**，连请求返回值都不变 |
-| refreshToken 也过期（30 天没打开） | 401 → 刷新失败 → 静默重登 → 自动重试原请求 | **完全无感**，不会因为「一个月没来」被弹登录页 |
-| 静默重登也失败 | 清凭证 → 跳登录页 | 看到登录页 |
-| 用户主动退出 | 打上 `LOGGED_OUT` 标记，静默登录不再生效 | 停留在未登录态 |
-
-### 6.3 「退出登录」必须是真按钮
-
-自动登录和「退出登录」是一对直接冲突的需求：如果退出后 `onLaunch` 又把人登回去，这个按钮就是个点了没反应的假按钮。
-
-解法是 `STORAGE_KEYS.LOGGED_OUT` 标记：
-
-- `store.logout()` → 打上标记；
-- `store.login()`(用户主动登录) → 清除标记；
-- `ensureSilentLogin()` → 标记存在时**直接返回 false，什么都不做**。
-
-### 6.4 头像和昵称为什么必须用户主动填
-
-这是微信的隐私策略决定的，**与登录是两件事**：
-
-- **登录（`wx.login`）是静默的** → 所以打开小程序即登录完成；
-- **头像昵称无法静默获取** → 所以只能由用户主动提供。
-
-微信先后回收了三代获取用户信息的接口：`wx.getUserInfo`、`wx.getUserProfile`、`<button open-type="getUserInfo">`。它们现在**不报错**，但会静默返回「微信用户」这个假名字和一张灰色默认头像——这比报错更难排查。
-
-目前唯一合规的路径是**「头像昵称填写能力」**：
-
-- 头像：`<button open-type="chooseAvatar" @chooseavatar="...">`，**必须**用 `button`，外层换成 `view` 或 `image` 都不会触发，点击毫无反应；
-- 昵称：`<input type="nickname">`，用户聚焦时键盘上方会直接展示他的微信昵称，点一下就填进来。
-
-因此**个人资料页是可选的**：用户不进去，账号照常用，只是显示默认昵称和文字头像。
-
-> ⚠️ `chooseavatar` 返回的 `avatarUrl` 是**临时文件路径**（形如 `wxfile://...`），不是可以长期使用的 URL。真实项目必须在保存前用 `uni.uploadFile` 上传到自己的对象存储、换成永久地址再提交，否则这次会话结束后头像就变成裂图。本项目没有后端和对象存储，mock 层直接存了临时路径，因此重启小程序后可能失效——`x-user-avatar` 对此做了兜底：图片加载失败时自动退回文字头像，界面不会出现破图。
-
----
-
-## 七、已知坑（改代码前请先读）
-
-这些都是本项目**实测踩过**的，写在代码注释里，此处汇总：
-
-### 7.1 `postcss.config.js` 是一份「改了不生效」的配置
-
-`@dcloudio/vite-plugin-uni` 会在自己的 `config` 钩子里**主动设置** `css.postcss.plugins`，而 Vite 的规则是：**只要 `css.postcss` 已被设置，就完全跳过对 `postcss.config.js` 的查找**。
-
-所以本项目**不保留根目录的 `postcss.config.js`**——留着一个改了不生效的配置文件，只会让后来者以为「改那里能调整 Tailwind」。Tailwind 声明在 [vite.config.ts](vite.config.ts) 的 `css.postcss.plugins` 里。
-
-这个坑的典型症状：**Tailwind 一条原子类都不生成**，产物里原样残留 `@tailwind base;` 这种未展开指令，但构建**不报任何错**，极易被误判成「Tailwind 装错了」或「版本不兼容」。
-
-### 7.2 Vite 必须锁死 `5.2.8`
-
-`@dcloudio/vite-plugin-uni` 的 `peerDependencies` 是**精确版本** `"vite": "5.2.8"`，不是 `^5.0.0`。uni-app 编译器与 Vite 内部 API 耦合极深，升到 5.3/6.x 会出现「插件钩子签名对不上」的**静默错误**——产物能生成，但运行时才报错，排查成本极高。
-
-因此 `package.json` 里 vite 写死 `5.2.8`，不带 `^`。
-
-### 7.3 小程序端 Tailwind 类名会被转义
-
-`weapp-tailwindcss` 会同时改写 wxss 与 wxml 里的类名（WXSS 不允许类名里出现 `/` `.` `[` `%` 等字符）。因此**产物里的类名和源码不一样**，这是正常的：
+`weapp-tailwindcss` 会同时改写 wxss 与 wxml 里的类名（WXSS 不允许类名里出现 `.` `:` `/` 等字符）：
 
 | 源码 | 产物 |
 | --- | --- |
-| `mt-1.5` | `.mt-1_d5` |
+| `p-0.5` | `.p-0_d5` |
 | `active:bg-bg-elevated` | `.active_cbg-bg-elevated:active` |
 
 **在 `app.wxss` 里搜不到源码中的类名，不代表它没生成。**
 
-另外 `rem2rpx` 必须开启：微信小程序的 WXSS **不支持 rem 单位**，而 Tailwind 的间距/尺寸类默认全部输出 rem。不转换的话这些类会在真机上直接失效，且**不会有任何报错**。
+另外 `rem2rpx` 必须开着：小程序 WXSS 不支持 `rem`，而 Tailwind 的间距尺寸类默认全部输出 rem，不转换会在真机上直接失效且不报错。
 
-### 7.4 组件不需要额外配置样式隔离
+### 10.2 `postcss.config.js` 是一份「改了不生效」的配置
 
-微信官方文档说「app.wxss 不会作用于自定义组件」，但 **uni-app 默认给所有自定义组件设置了 `addGlobalClass: true`**（等价于 `styleIsolation: 'apply-shared'`）。这一行为在 `node_modules/@dcloudio/uni-mp-weixin/dist/uni.mp.esm.js` 的 `parseComponent` 里，不是文档里的内容。
+`@dcloudio/vite-plugin-uni` 会在自己的 `config` 钩子里主动设置 `css.postcss.plugins`，而 Vite 的规则是：**只要 `css.postcss` 已被设置，就完全跳过对 `postcss.config.js` 的查找**。所以本项目不保留根目录的 `postcss.config.js`——留着一个改了不生效的文件只会误导人。Tailwind 声明在 `vite.config.ts` 里。
 
-所以 `app.wxss` 里的 Tailwind 输出能正常作用到组件内部，**不用给组件加任何配置**（加了也不会有变化，因为 uni 把它放在运行时组件选项里，而不是组件的 `.json` 文件里）。
+典型症状：Tailwind 一条原子类都不生成，产物里原样残留 `@tailwind base;`，但构建**不报任何错**。
 
-### 7.5 `<input>` 的事件类型需要断言
+### 10.3 Vite 必须锁死 `5.2.8`
 
-模板里的 `<input>` 在 `vue-tsc` 眼里是浏览器的 `HTMLInputElement`，`blur`/`input` 事件被推导成 DOM 的 `FocusEvent`/`InputEvent`；而实际运行时（小程序和 H5 都是）传进来的是 uni 的事件对象，值在 `e.detail.value` 里。
+`@dcloudio/vite-plugin-uni` 的 `peerDependencies` 是**精确版本** `"vite": "5.2.8"`。uni 编译器与 Vite 内部 API 耦合极深，升到 5.3/6.x 会出现「插件钩子签名对不上」的静默错误——产物能生成，运行时才报错。
 
-因此处理函数的参数类型要写成 `Event`（DOM 事件的基类）而不是具体形状——函数参数是逆变的，只有声明成超类型才能赋值给 DOM 事件要求的签名——再用 `as unknown as` 取出 `detail.value`。
+### 10.4 `<input>` 的事件类型需要断言
 
-### 7.6 条件编译在单元测试里只是普通注释
+模板里的 `<input>` 在 `vue-tsc` 眼里是浏览器的 `HTMLInputElement`，事件被推导成 DOM 的 `InputEvent`；而实际运行时（小程序和 H5 都是）传进来的是 uni 的事件对象，值在 `e.detail.value` 里。处理函数的参数要写成 `Event`，再用 `as unknown as` 取出 `detail.value`。
 
-`// #ifdef MP-WEIXIN` 是**构建期**由 uni 编译器处理的。在 vitest 眼里它就是一句普通注释，于是**两个分支会同时保留，且永远只会执行到第一个 `return`**——单测就错误地落在了「小程序」分支上。
+### 10.5 条件编译在单元测试里只是普通注释
 
-这个坑的症状很隐蔽：`getPreferredLoginType()` 在测试里返回 `'wechat'`，而测试手写的登录方式是 `'guest'`，mock 服务端按 `(code + 登录方式)` 认人，于是每次静默重登都会被当成新用户注册，**账号凭空多出来一个**——而这一切在真机上都不会发生。
+`// #ifdef MP-WEIXIN` 是**构建期**由 uni 编译器处理的。在 vitest 眼里它就是一句普通注释，于是两个分支会同时保留、且永远只执行到第一个。凡是有平台分支的工具函数，都要像 `utils/lock.ts` 那样在条件编译之外再加一层运行时判断（`typeof wx !== 'undefined'`）。
 
-解法见 [src/utils/login-code.ts](src/utils/login-code.ts) 的 `isMpWeixin()`：条件编译之外再加一层运行时判断（`typeof wx !== 'undefined'`）。真机上 `wx` 一定存在，判断为真；测试环境里 `wx` 不存在，自然落回非小程序分支，与 H5 端行为一致。
+### 10.6 `vitest.config.ts` 必须独立于 `vite.config.ts`
 
-### 7.7 `vitest.config.ts` 必须独立于 `vite.config.ts`
+不能复用——后者会加载 uni 插件，而 uni 插件在 vitest 环境下会尝试执行小程序编译流程并失败。单测用独立的 `vitest.config.ts`，只配别名和 happy-dom。
 
-不能直接复用 `vite.config.ts`——它会加载 uni 插件，而 uni 插件在 vitest 环境下会尝试执行小程序编译流程并失败。因此单测用独立的 [vitest.config.ts](vitest.config.ts)，只配别名和 happy-dom 环境。
+单测里 `uni.*` 全部由 `tests/setup.ts` 打桩，其中 storage 用内存 Map 模拟。
 
-单测里 `uni.*` 全部由 [tests/setup.ts](tests/setup.ts) 打桩，其中 storage 用内存 Map 模拟，**事件总线 `$emit/$on/$off` 是真实实现的**——如果用空函数糊弄过去，`auth:expired` / `auth:token-refreshed` 这类事件就传不到 store，会漏测真实的登录态联动。
+### 10.7 仓库根目录的 `project.config.json` 是上一个项目的遗留
 
----
+根目录的 `project.config.json` / `project.private.config.json` 是**改造前的「压枪训练助手」项目**留下的，里面的 appid 指向另一个小程序。它们**不参与本项目的构建**（uni 构建时会自己生成 `dist/*/mp-weixin/project.config.json`，appid 取自 `manifest.json`），导入开发者工具时选的也是 `dist` 目录而不是仓库根目录。
 
-## 八、接入真实后端要改什么
-
-1. `src/constants/config.ts` → `USE_MOCK` 改为 `false`；
-2. 同文件 → `API_BASE_URL` 改成真实域名（或保持 `/api` 并用 `VITE_APP_PROXY_TARGET` 配代理）；
-3. `src/manifest.json` → 填入微信小程序 `appid`（当前为空，`wx.login` 会失败并自动降级为设备登录，不影响游客体验）；
-4. 核对 `src/types/` 里的接口类型与真实后端的响应结构是否一致。
-
-**其余代码一行都不用改。**
+它们留着只会误导人——建议删掉，或至少别改它们：**改了不会生效。**
 
 ---
 
-## 九、开发路线
+## 十一、阶段进度
 
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
-| 阶段 1 | 工程初始化、构建配置、目录结构 | ✅ 已完成 |
-| 阶段 2 | 请求库、api 层、Pinia store、持久化、登录 / 刷新 token 链路 | ✅ 已完成 |
-| 阶段 3 | 核心页面：首页、压枪测试、灵敏度、记录、排行榜、我的 / 设置 | ⏳ 待开始 |
-| 阶段 4 | 单元测试补全、小程序 E2E 骨架、运行说明 | ⏳ 待开始 |
+| 阶段 1 | `pages.json`、manifest、Pinia store（含持久化）、TypeScript 类型 | ✅ 完成 |
+| 阶段 2 | 密码锁：`utils/lock.ts`、`pages/lock/lock.vue`、`App.vue` 全局拦截 | ✅ 完成 |
+| 阶段 3 | 首页时间线 + 编辑页 + 详情页（增删改查） | ✅ 完成 |
+| 阶段 4 | 设置页（密码锁开关 / 修改密码 / 主题 / 隐私说明） | ✅ 完成 |
+| —— | 头像与昵称（`chooseAvatar` / `input type="nickname"`） | ⏸ **本版不做**，`UserProfile` 字段已在类型里留好 |
+| 阶段 5 | 真机调试、体验版上传与测试说明（即本文第五～七节） | ✅ 完成 |
+
+**当前状态**：`pnpm type-check` 通过，45 个单测全过，`pnpm build:mp-weixin` 主包 **122 KB**（上限 2 MB）。
+
+### 还没做的事
+
+- **记事正文加密**：见第一节。要做真正的机密性需要改成一整套「PIN 派生密钥 + AES-GCM」，独立立项。
+- **密码强度限制**：目前允许 `111111` 这类弱 PIN。加黑名单只能挡住最懒的几种，且会打断「设密码」这个本该顺畅的动作，暂不做。
+- **忘记密码时的数据挽救**：设计上就是「无法找回」，没有也不会加后门。

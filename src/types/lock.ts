@@ -27,14 +27,20 @@ export interface LockCredential {
 /**
  * 锁页的工作模式。
  *
- * 三种模式共用一套数字键盘与圆点指示器，只有文案与提交后的动作不同：
+ * 四种模式共用一套数字键盘与圆点指示器，只有文案与提交后的动作不同：
  *   setup   —— 首次设置密码，输入第一遍
  *   confirm —— 二次确认，必须与第一遍完全一致
- *   verify  —— 解锁校验
+ *   verify  —— 解锁校验，通过后进应用
+ *   change  —— 修改密码的第一步：校验**当前**密码，通过后转 setup 重设
+ *
+ * change 与 verify 的差别只在「通过之后去哪」：
+ *   verify → reLaunch 首页（他是从外面被拦进来的）；
+ *   change → 转入 setup（他已经解锁了，是来换密码的）。
+ * 因此两者共用同一段校验代码，只在通过之后分叉。
  *
  * 用状态机式的单一字段而不是多个布尔量（isSetup / isConfirm…），
  * 是因为页面的渲染分支必须严格互斥：漏判一个分支就会出现
  * 「设置密码时顶部显示的是『请输入密码解锁』」这类文案错位。
  * 单一枚举天然互斥，不需要额外维护约束。
  */
-export type LockMode = 'setup' | 'confirm' | 'verify'
+export type LockMode = 'setup' | 'confirm' | 'verify' | 'change'

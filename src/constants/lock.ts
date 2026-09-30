@@ -31,6 +31,30 @@ export const PIN_LENGTH = 6
 export const RELOCK_DELAY = 30 * 1000
 
 /**
+ * 锁页的 URL 参数名与「设置密码」模式的取值。
+ *
+ * 抽成常量是因为这条链接由**两个页面**共同维护：
+ * 设置页负责拼（`${ROUTES.LOCK}?${LOCK_MODE_PARAM}=${LOCK_MODE_SETUP}`），
+ * 锁页负责读。两边各写一遍字面量的话，一旦有一边拼错，
+ * 表现是「点开启锁以后直接进了输入密码界面」——而那时本地根本没有密码，
+ * 锁页的兜底逻辑会再把它拉回设置模式，于是错误被悄悄吞掉，
+ * 看起来只是「多闪了一下」，没人会去查。
+ */
+export const LOCK_MODE_PARAM = 'mode'
+
+/** LOCK_MODE_PARAM 的取值：设置新密码（另一个取值是 verify，即默认的校验） */
+export const LOCK_MODE_SETUP = 'setup'
+
+/**
+ * LOCK_MODE_PARAM 的取值：修改密码（先验当前密码，再设新的）。
+ *
+ * 与 LOCK_MODE_SETUP 分开是因为**未解锁的人不能走这条路**：
+ * setup 是给「本地还没有密码」的人用的，change 是给已经解锁、
+ * 想换一个密码的人用的，前者不需要通过校验，后者必须。
+ */
+export const LOCK_MODE_CHANGE = 'change'
+
+/**
  * 解锁页在验证失败时抖动的持续时长（毫秒）。
  *
  * ⚠️ 必须与 pages/lock/lock.vue 里 `@keyframes lock-shake` 的

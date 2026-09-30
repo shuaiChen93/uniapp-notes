@@ -66,10 +66,16 @@ onLaunch(() => {
 })
 
 onShow(() => {
-  // 从后台切回前台（含冷启动的首次触发）。
-  // 这里不判断「是不是刚启动」——冷启动时 unlocked 本来就是 false，
-  // 统一走同一条判断路径，比分两种场景更不容易出错
-  if (lockStore.isLockedOut()) redirectToLock()
+  /**
+   * 从后台切回前台（含冷启动的首次触发）。这里不区分「是不是刚启动」——
+   * 冷启动时 unlocked 本来就是 false，统一走同一条判断路径更不容易漏。
+   *
+   * ── 冷启动为什么不靠这里来「第一时间」拦住 ──────────────────────────
+   * pages.json 的第一项是锁页，冷启动的落地页就是它，首页根本不会被渲染。
+   * 所以「打开应用先看到密码」这件事不依赖 onShow 的时机，
+   * 这里主要负责**热启动**：用户在首页停留过、切后台超过 30 秒再回来。
+   */
+  if (lockStore.needsSetup() || lockStore.isLockedOut()) redirectToLock()
 })
 
 onHide(() => {

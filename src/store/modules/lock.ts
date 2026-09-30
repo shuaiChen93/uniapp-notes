@@ -136,25 +136,57 @@ export const useLockStore = defineStore('lock', () => {
   /**
    * 重置（清空全部数据后调用）。
    *
-   * 此时凭据已被 clearAppStorage 删除，内存里的状态也必须跟着归零，
-   * 否则会出现「数据显示已清空，但锁仍然拦着」的矛盾状态。
+   * ⚠️ 归零的方向是「回到未解锁」，不是「放行」。
+   *
+   * 清空之后本机已经没有凭据，设置也回到默认的「锁开着」，
+   * 应用正处在 needsSetup() 所描述的「先设置密码」状态。
+   * 若在这里把 unlocked 置为 true，就等于在清空之后留出一段
+   * 「谁都能进」的空窗——而用户此刻恰恰是最不该被放行的时刻：
+   * 他刚刚才证明了自己打不开这把锁。
    */
   function reset(): void {
-    unlocked.value = true
+    unlocked.value = false
     hiddenAt = 0
   }
 
   /**
-   * 用本地实际存储校正「锁是否启用」这个标记。
+   * 是否必须先**设置**密码才能使用应用。
    *
-   * 只在启动时调用一次，处理一种极端情况：设置写盘成功但应用被强杀，
-   * 或用户通过微信的「清除缓存」抹掉了部分键，导致 settings 里说锁开着、
-   * 但密码凭据已经不存在了。此时应当以**凭据是否存在**为准，
-   * 因为凭据才是能不能解锁的唯一依据。
+   * 与 isLockedOut 的区别是「要弹哪个界面」：
+   *   这里为 true → 本地还没有凭据，要的是「设置密码」；
+   *   isLockedOut 为 true → 凭据存在但本次会话没解锁，要的是「输入密码」。
+   * 两者都由 App.vue 在 onShow 时判断，都跳同一个锁页——
+   * 锁页会自己按「本地有没有密码」决定进哪个模式，不需要额外传参。
+   *
+   * ⚠️ 必须是**函数**而不是 computed，这一点很关键：
+   * hasPin() 读的是 storage，不参与 Vue 的响应式追踪，
+   * 而 enabled 只在开关翻转时才会失效缓存。做成 computed 的话，
+   * 用户刚设完密码（enabled 从 true 到 true，没有变化）→ 缓存不失效
+   * → 仍返回 true → 立刻又被拉回设置页，形成新的死循环。
+   */
+  function needsSetup(): boolean {
+    return enabled.value && !hasPin()
+  }
+
+  /**
+   * 启动校正：只在 App 启动时调用一次。
+   *
+   * 处理的是**历史数据**：早期版本里 lockEnabled 默认 false，
+   * 而那批数据产生时还没有任何设置密码的入口，因此它表达的是
+   * 「从未选择过」，不是「主动关掉了锁」。两者在存储里完全同形，
+   * 只能靠 lockConfigured 区分（见 types/settings.ts）。
+   *
+   * 不做这个校正的后果很具体：老设备升级后 lockEnabled 仍是 false，
+   * 密码锁永远不会启动——而用户看到的现象只是「这个功能好像没做」。
+   *
+   * ⚠️ 这个函数在旧版里做的是**相反**的事（把没有凭据的锁关掉）。
+   * 那个逻辑在「锁默认关闭」的前提下是对的，但现在锁默认开启，
+   * 它会直接把第一次使用的人挡在设置流程之外，因此必须改掉。
    */
   function syncFromStorage(): void {
-    if (settingsStore.settings.lockEnabled && !hasPin()) {
-      settingsStore.setLockEnabled(false)
+    const { lockEnabled, lockConfigured } = settingsStore.settings
+    if (!lockConfigured && !lockEnabled) {
+      settingsStore.setLockEnabled(true)
     }
   }
 
@@ -168,6 +200,7 @@ export const useLockStore = defineStore('lock', () => {
     verify,
     markHidden,
     isLockedOut,
+    needsSetup,
     reset,
     syncFromStorage,
   }

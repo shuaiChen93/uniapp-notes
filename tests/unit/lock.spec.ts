@@ -16,8 +16,9 @@ import { getStorage } from '@/utils/storage'
  *   · 相同密码在不同次设置下必须得到不同哈希（盐真的生效了）
  *   · 凭据残缺时必须判定为「未设置密码」，而不是把人锁在门外
  *   · 前后台的超时判定（切后台 30 秒才重新上锁）
+ *   · 首次启动必须先设置密码（默认开启），以及老数据要不要被校正
  *
- * 最后一条尤其值得测：它的逻辑分支多、且全部依赖时间，
+ * 超时判定尤其值得测：它的逻辑分支多、且全部依赖时间，
  * 靠手工「切后台等半分钟再切回来」来验证几乎不可能覆盖到边界。
  * ══════════════════════════════════════════════════════════════════════
  */
@@ -112,8 +113,14 @@ describe('锁状态与超时判定（store/modules/lock.ts）', () => {
     vi.useRealTimers()
   })
 
-  it('未启用密码锁时永远不拦截', () => {
+  it('用户主动关掉密码锁后，永远不拦截', () => {
+    const settings = useSettingsStore()
     const lock = useLockStore()
+
+    // ⚠️ 必须显式关掉：settings 的默认值是「开启密码锁」
+    // （见 store/modules/settings.ts，那是本应用的产品前提）
+    settings.setLockEnabled(false)
+
     lock.markHidden()
     vi.advanceTimersByTime(10 * 60 * 1000)
 
@@ -178,19 +185,112 @@ describe('锁状态与超时判定（store/modules/lock.ts）', () => {
     expect(lock.isLockedOut()).toBe(false)
   })
 
-  it('启动校正：开关说锁开着但凭据已丢失时，以凭据为准放行', () => {
-    const settings = useSettingsStore()
-    settings.setLockEnabled(true)
-    // 刻意不写凭据，模拟「设置写盘成功但凭据被清掉」
-    expect(hasPin()).toBe(false)
+})
 
+describe('首次启动必须设置密码（密码锁默认开启）', () => {
+  beforeEach(() => {
+    freshPinia()
+  })
+
+  it('全新安装：要求先设置密码，而不是直接进首页', () => {
     const lock = useLockStore()
+
+    // 这三条一起定义了「私密感」的来源：默认就锁着，且本地没有密码，
+    // 于是 App.onShow 的 needsSetup() 会把用户送到锁页的设置模式
     expect(lock.enabled).toBe(true)
+    expect(hasPin()).toBe(false)
+    expect(lock.needsSetup()).toBe(true)
+    expect(lock.isLockedOut()).toBe(true)
+  })
+
+  it('设完密码后立刻不再要求设置（回归：needsSetup 不能是 computed）', async () => {
+    const lock = useLockStore()
+    expect(lock.needsSetup()).toBe(true)
+
+    /**
+     * 刻意绕过 store，直接往 storage 里写凭据。
+     *
+     * 这条路径上 enabled 自始至终都是 true，没有任何响应式依赖发生变化。
+     * 若把 needsSetup 写成 computed，它会一直返回缓存下来的那个 true——
+     * 用户设完密码立刻又被拉回设置页，反复循环且不会有任何报错。
+     * 这正是 needsSetup 必须是普通函数的理由（见 store/modules/lock.ts）。
+     */
+    await setPin('123456')
+
+    expect(lock.needsSetup()).toBe(false)
+  })
+
+  it('用户关掉密码锁后，不再要求设置密码', () => {
+    const lock = useLockStore()
+    lock.disable()
+
+    expect(lock.enabled).toBe(false)
+    expect(lock.needsSetup()).toBe(false)
+  })
+})
+
+describe('旧数据校正（lockConfigured 的作用）', () => {
+  /**
+   * 写入一份「上次退出时留下的设置」，模拟升级后第一次启动。
+   * 不传 lockConfigured 就等价于老版本留下的数据（那时还没有这个字段）。
+   */
+  function seedSettings(partial: Record<string, unknown>): void {
+    uni.setStorageSync(
+      STORAGE_KEYS.SETTINGS,
+      JSON.stringify({
+        settings: { theme: 'light', profile: { nickname: '', avatar: '' }, ...partial },
+      }),
+    )
+  }
+
+  beforeEach(() => {
+    freshPinia()
+  })
+
+  it('老数据里的 lockEnabled=false 表示「从未选择过」，校正为开启', () => {
+    seedSettings({ lockEnabled: false })
+    // 注意顺序：持久化插件是在 store 第一次被使用时恢复数据的，
+    // 因此必须先写 storage，再取 store
+    const settings = useSettingsStore()
+    const lock = useLockStore()
+
+    // 缺失的 lockConfigured 取初始值 false，即「用户没做过选择」
+    expect(settings.settings.lockConfigured).toBe(false)
+    expect(lock.enabled).toBe(false)
 
     lock.syncFromStorage()
 
-    expect(lock.enabled).toBe(false)
-    expect(lock.isLockedOut()).toBe(false)
+    expect(lock.enabled).toBe(true)
+    // 校正完要把「已选择」补上，否则每次启动都会再判断一遍
+    expect(settings.settings.lockConfigured).toBe(true)
+  })
+
+  it('用户主动关掉的锁，下次启动不会被校正回来', () => {
+    // 这一条防的是「关掉密码锁 → 重启 → 锁又自己开了」这类投诉，
+    // 它和上一条在存储里的差别只有 lockConfigured 这一个字段
+    seedSettings({ lockEnabled: false, lockConfigured: true })
+
+    const settings = useSettingsStore()
+    expect(settings.settings.lockEnabled).toBe(false)
+
+    useLockStore().syncFromStorage()
+
+    expect(settings.settings.lockEnabled).toBe(false)
+  })
+
+  it('已经设过密码的老用户不受影响', async () => {
+    seedSettings({ lockEnabled: true, lockConfigured: true })
+    // 老用户本机的凭据
+    await setPin('246810')
+
+    const settings = useSettingsStore()
+    const lock = useLockStore()
+
+    lock.syncFromStorage()
+
+    expect(settings.settings.lockEnabled).toBe(true)
+    // 有凭据就只谈「解锁」，不再要求他设置一个新的
+    expect(lock.needsSetup()).toBe(false)
   })
 })
 
@@ -199,7 +299,7 @@ describe('忘记密码后的清空（数据与状态一起归零）', () => {
     freshPinia()
   })
 
-  it('清空后：记事、设置、密码凭据全部消失', async () => {
+  it('清空后：记事与凭据都消失，应用回到「等待设置密码」的初始状态', async () => {
     const notes = useNotesStore()
     const settings = useSettingsStore()
     const lock = useLockStore()
@@ -217,6 +317,25 @@ describe('忘记密码后的清空（数据与状态一起归零）', () => {
     expect(notes.total).toBe(0)
     expect(settings.settings.profile.nickname).toBe('')
     expect(hasPin()).toBe(false)
-    expect(lock.enabled).toBe(false)
+
+    /**
+     * ⚠️ 这里断言的是「回到刚安装的状态」，而不是「锁被关掉」。
+     *
+     * resetToDefault 会把设置恢复成默认值，而密码锁的默认值是**开启**：
+     * 于是清空之后应用处在「锁开着、但本地没有密码」——也就是
+     * needsSetup()，锁页会就地要求用户设一个新密码。
+     *
+     * 这不是漏清理，而是刻意的：清空数据是回到第一天，
+     * 不是变成一个没有密码的记事本。锁页的 handleForgot 也据此
+     * 停在锁页而不是跳回首页（见 pages/lock/lock.vue）。
+     *
+     * isLockedOut 同样为 true：本次会话的解锁状态也一并作废，
+     * 免得清空之后留下「谁都能进」的空窗——用户刚刚才证明
+     * 自己打不开这把锁，此刻最不该被放行。
+     */
+    expect(lock.enabled).toBe(true)
+    expect(settings.settings.lockConfigured).toBe(false)
+    expect(lock.needsSetup()).toBe(true)
+    expect(lock.isLockedOut()).toBe(true)
   })
 })

@@ -24,13 +24,20 @@ import type { AppSettings, ThemeMode, UserProfile } from '@/types'
  * 默认设置。
  *
  * theme 默认浅色：记事本是长时间阅读文字的场景，浅色底在自然光下更易读。
- * lockEnabled 默认关闭：密码锁是一个「用户主动想要才会开」的功能。
- * 默认开启的话，第一次进应用就要面对设置密码的流程，
- * 而多数人下载时只是想随手记点东西——先给价值，再给安全感。
+ *
+ * lockEnabled **默认开启**。这是本应用的产品前提，不是一个可选增强：
+ * 它是一本「私密记事本」，如果默认不锁，从安装到写下第一条内容的
+ * 整段时间都是敞开的——而用户第一次打开它，往往就是想记点私密的东西。
+ * 「先给价值，再给安全感」在这里不成立：先记下的那条内容已经躺在本地了，
+ * 事后再上锁并不能消除它曾经敞开过的事实。
+ *
+ * lockConfigured 默认 false，含义是「用户还没对锁做过选择」。
+ * 它只服务于数据迁移，完整理由见 types/settings.ts。
  */
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',
-  lockEnabled: false,
+  lockEnabled: true,
+  lockConfigured: false,
   profile: {
     nickname: '',
     avatar: '',
@@ -64,9 +71,13 @@ export const useSettingsStore = defineStore(
      * 真正的「设置密码 / 清除密码」由 store/modules/lock.ts 负责，
      * 它会在完成之后回调这里同步标记——两件事必须原子地一起成功，
      * 否则会出现「标记说锁开着，但本地没有密码」这种启动时无法解锁的死局。
+     *
+     * 同时把 lockConfigured 置为 true：能走到这里，说明用户已经对
+     * 「要不要用密码锁」做出了明确选择（在设置页拨动了开关，
+     * 或在锁页走完了密码设置），此后启动校正就不该再替他改回默认值。
      */
     function setLockEnabled(value: boolean): void {
-      patch({ lockEnabled: value })
+      patch({ lockEnabled: value, lockConfigured: true })
     }
 
     /** 更新昵称 / 头像。用局部合并，只传想改的那个字段即可 */
