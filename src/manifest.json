@@ -9,7 +9,7 @@
   // project.config.json 仍然写 touristappid）。真正生效的是下面
   // mp-weixin.appid。两处都留着是因为 uni 的其它端与部分工具链会读顶层
   // 这一份，保持与 mp-weixin 一致可以避免「两个地方写着不同的 appid」。
-  "appid": "",
+  "appid": "wx21dc2df651905fa5",
   "description": "带密码锁的本地私密记事本，数据只存在手机里",
   "versionName": "1.0.0",
   "versionCode": "100",
@@ -82,7 +82,7 @@
     // 产物的 project.config.json 里就会带上它（已实测）。
     // 留空时产物写的是 touristappid —— 开发者工具会以「游客身份」
     // 打开，能预览、但**不能真机调试、不能上传**。
-    "appid": "",
+    "appid": "wx21dc2df651905fa5",
     "setting": {
       // 本应用不发任何网络请求，urlCheck 保持关闭以省去开发期的域名配置。
       // 上线时也不需要开——没有 request 就不存在合法域名问题。
